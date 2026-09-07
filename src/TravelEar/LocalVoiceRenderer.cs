@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using BepInEx.Logging;
-using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -50,8 +50,12 @@ internal sealed class LocalVoiceRenderer
     private GameObject _voiceObject;
     private VoicePlayer _player;
     private IntPtr _tapTarget;
-    private Transform _listener;
+    private Transform _anchor;
     private Transform _pinnedSource;
+    private bool _reportedNoAnchor;
+    private Il2CppSystem.ArraySegment<float> _silence;
+    private int _silenceSamples;
+    private long _silenceFrames;
     private Transform _pinnedSourceOriginalParent;
     private bool _built;
     private bool _reportedNoCues;
@@ -89,6 +93,7 @@ internal sealed class LocalVoiceRenderer
         RefreshTapTarget();
         PinEmitter();
         GuardLag();
+        KeepRingFresh();
 
         if (Time.unscaledTime >= _nextStats)
         {
@@ -185,26 +190,55 @@ internal sealed class LocalVoiceRenderer
 
         if (sourceTransform is null) return;
 
-        if (_listener is null || _listener.Pointer == IntPtr.Zero || _listener.gameObject is null)
+        if (_anchor is null || _anchor.Pointer == IntPtr.Zero || _anchor.gameObject is null)
         {
-            var listener = Object.FindObjectOfType(Il2CppType.Of<AudioListener>())?.TryCast<AudioListener>();
-            _listener = listener?.transform;
-            if (_listener is null) return;
-            _log.LogInfo($"Local Voice: listener is '{listener.name}'.");
+            _anchor = FindAnchor();
+            if (_anchor is null)
+            {
+                // Unpinned: at least keep the source on the listener through the game's follow logic.
+                _voiceObject.transform.position = AudioManager.ListenerPosition;
+                return;
+            }
         }
 
-        var pinned = _pinnedSource is not null && _pinnedSource.parent is not null && _pinnedSource.parent.Pointer == _listener.Pointer;
+        var pinned = _pinnedSource is not null && _pinnedSource.parent is not null && _pinnedSource.parent.Pointer == _anchor.Pointer;
         if (pinned) return;
 
         _pinnedSource = sourceTransform;
         _pinnedSourceOriginalParent = sourceTransform.parent;
         controller.FollowTransform = null;
-        sourceTransform.SetParent(_listener, false);
+        sourceTransform.SetParent(_anchor, false);
         sourceTransform.localPosition = new Vector3(0f, 0f, _forwardMeters);
         sourceTransform.localRotation = Quaternion.identity;
-        _voiceObject.transform.SetParent(_listener, false);
+        _voiceObject.transform.SetParent(_anchor, false);
         _voiceObject.transform.localPosition = sourceTransform.localPosition;
-        _log.LogInfo($"Local Voice: emitter pinned to the listener, {_forwardMeters * 100f:F1} cm forward (follow cleared).");
+        _log.LogInfo($"Local Voice: emitter pinned to '{_anchor.name}', {_forwardMeters * 100f:F1} cm forward along its view axis (follow cleared).");
+    }
+
+    /// <summary>
+    /// The transform whose forward axis is the player's view: the main camera (the game's
+    /// <c>AudioListenerController</c> follows it), else the listener itself. Never
+    /// <c>Object.FindObjectOfType</c>: that overload is stripped from this IL2CPP build.
+    /// </summary>
+    private Transform FindAnchor()
+    {
+        try
+        {
+            var camera = Camera.main;
+            if (camera is not null) return camera.transform;
+            var listener = AudioManager.Instance?.ListenerController?._listener;
+            if (listener is not null) return listener.transform;
+        }
+        catch (Exception e)
+        {
+            if (!_reportedNoAnchor) _log.LogWarning($"Local Voice: anchor lookup failed: {e.Message}");
+        }
+        if (!_reportedNoAnchor)
+        {
+            _reportedNoAnchor = true;
+            _log.LogWarning("Local Voice: no main camera or listener yet; emitter follows the listener position until one appears.");
+        }
+        return null;
     }
 
     /// <summary>Encoder thread: decode with the game's decoder and push into the provider ring.</summary>
@@ -255,6 +289,46 @@ internal sealed class LocalVoiceRenderer
             _log.LogInfo($"Local Voice: read head resync ({reason}): write {provider.CachedVoiceWriteHead}, read {readHead}, margin {margin} samples.");
     }
 
+    // [impl->REQ-VOICE-CONTINUOUS]
+    /// <summary>
+    /// Main thread, between talk bursts: pushes zero frames so the provider's write head keeps
+    /// moving ahead of the read head. The game's own provider is fed by the mic continuously, but
+    /// Outbound Voice only exists while transmitting; without this the VoicePlayer loops the last
+    /// ring's worth of a burst (mostly the mic noise floor) forever, which the operator heard as a
+    /// raised noise floor in-world (M1 T3 runs 2 and 3).
+    /// </summary>
+    private void KeepRingFresh()
+    {
+        var provider = RoundTripProvider.Provider;
+        var ring = provider?.CachedVoiceData;
+        if (provider is null || ring is null || _player is null) return;
+
+        var frameSamples = _lastDecodedSamples > 0 ? _lastDecodedSamples : 2880;
+        var sinceMs = (Stopwatch.GetTimestamp() - Interlocked.Read(ref _lastPushTimestamp)) * 1000.0 / Stopwatch.Frequency;
+        if (sinceMs < frameSamples * 1000.0 / LocalVoiceDecoder.SampleRate) return; // a burst is feeding the ring
+
+        if (_silenceSamples != frameSamples)
+        {
+            _silence = new Il2CppSystem.ArraySegment<float>(new Il2CppStructArray<float>(frameSamples));
+            _silenceSamples = frameSamples;
+        }
+
+        var length = ring.Length;
+        var frame = frameSamples * _ringChannels;
+        for (var pushes = 0; pushes < 3; pushes++)
+        {
+            var lag = ProviderLagSamples();
+            if (lag > length / 2) // reader overran the writer: put it back behind fresh silence
+            {
+                ResyncReadHead(frameSamples, "reader overran");
+                lag = ProviderLagSamples();
+            }
+            if (lag >= frame * ReadHeadMarginFrames) break;
+            RoundTripProvider.Push(_silence);
+            _silenceFrames++;
+        }
+    }
+
     /// <summary>Main thread: resync if the lag drifted far while a burst is in progress.</summary>
     private void GuardLag()
     {
@@ -285,7 +359,7 @@ internal sealed class LocalVoiceRenderer
         _log.LogInfo(
             $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), " +
             $"pushed {Interlocked.Read(ref RoundTripProvider.FramesPushed)}, errors {Interlocked.Read(ref _decodeErrors)}; " +
-            $"provider write head {provider?.CachedVoiceWriteHead ?? -1}, lag {lag} smp ({lagMs:F0} ms), resyncs {Interlocked.Read(ref _resyncs)}; " +
+            $"provider write head {provider?.CachedVoiceWriteHead ?? -1}, lag {lag} smp ({lagMs:F0} ms), resyncs {Interlocked.Read(ref _resyncs)}, silence frames {_silenceFrames}; " +
             $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
             $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
             $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}.");

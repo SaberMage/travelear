@@ -201,6 +201,21 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
      + tests). Stats line now shows provider lag in ms and resyncs; "Game audio" line shows
      listener/master/mute state and our source.
 
+  4. Run 3: lag and panning mostly as predicted, but the emitter pin never happened:
+     `Object.FindObjectOfType(Type)` is stripped in this IL2CPP build ("Method unstripping failed",
+     thrown 16k times) and the tick swallowed it, so the source stayed at the build-time listener
+     position (felt like a fixed world-axis offset). Fixed: anchor = `Camera.main.transform`
+     (the game's `AudioListenerController` follows the main camera), fallback
+     `AudioManager.Instance.ListenerController._listener`; warning logged once if neither exists;
+     position follows the listener while unpinned. Root cause of the "raised noise floor
+     in-world": Outbound Voice exists only while transmitting, so after a burst the VoicePlayer
+     kept looping the last 341 ms of the ring (mostly mic noise floor) forever. Fixed by
+     `KeepRingFresh`: zero frames pushed between bursts to keep the write head ahead of the
+     reader (REQ-VOICE-CONTINUOUS impl). Note for later fidelity work: the remote-voice path adds
+     `SamplePlaybackComponent` compression, soft clip, `VoiceMakeupGain`, ARV gating and
+     `PlayerVoicePlaybackControl` EQ/attenuation that the Clean `LocalVoiceProvider` path skips
+     (M2: REQ-RENDER-CLEAN / REQ-EAR-SELF curves).
+
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 
 - `VoicePlayer : MonoBehaviour` is itself the `IAudioFilter` (`ProcessSamples(ref

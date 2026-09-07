@@ -47,7 +47,7 @@ required_stages = ["doc", "impl"]  # M1 T3: game OpusDecoder + mod-owned LocalVo
 [[requirements]]
 id = "REQ-VOICE-CONTINUOUS"
 title = "The Local Voice stream is continuous from game launch; silence is emitted when no packets arrive"
-required_stages = []
+required_stages = ["impl"]  # M1 T3: provider ring zero-filled between talk bursts (KeepRingFresh); doc/unit in M2
 
 # ───────────────────────────── Rendering ──────────────────────────────────
 
