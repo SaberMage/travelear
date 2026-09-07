@@ -48,6 +48,8 @@ public sealed class Plugin : BasePlugin
             _harmony.PatchAll(typeof(RoundTripProvider));
             _harmony.PatchAll(typeof(TapFilter));
             Logger.LogInfo("Round-trip provider guard and Tap installed.");
+            _harmony.PatchAll(typeof(TransmitSignal));
+            Logger.LogInfo("Transmit signal probe installed on VoiceBroadcastTrigger.Start.");
         }
         catch (Exception e)
         {
@@ -63,7 +65,7 @@ public sealed class Plugin : BasePlugin
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -88,6 +90,7 @@ internal sealed class PluginConfig
     public ConfigEntry<string> HelperPath { get; }
     public ConfigEntry<string> SinkEndpoint { get; }
     public ConfigEntry<bool> MixerStage { get; }
+    public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<bool> Downmix { get; }
     public ConfigEntry<float> SelfEarForwardMeters { get; }
 
@@ -103,6 +106,8 @@ internal sealed class PluginConfig
             "Substring of the Windows playback device the Helper renders to. Empty = system default device.");
         MixerStage = file.Bind("Fidelity", "MixerStage", true,
             "Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character).");
+        TransmitGate = file.Bind("Fidelity", "TransmitGate", true,
+            "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         Downmix = file.Bind("Sink", "Downmix", false,
             "Downmix Local Voice to mono before sending it to the Sink.");
         SelfEarForwardMeters = file.Bind("Ear", "SelfEarForwardMeters", 0.0762f,

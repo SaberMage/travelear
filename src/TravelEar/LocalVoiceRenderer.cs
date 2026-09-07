@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using BepInEx.Logging;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using TravelEar.Core;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -15,7 +16,9 @@ namespace TravelEar;
 /// <c>AudioFilterMixer</c> into synthesizer mode; if its controller is ever reclaimed it re-runs
 /// Awake/OnEnable from Update. The renderer (1) builds it once the audio system exists, (2) pins
 /// the emitter to the listener (Self-Ear), (3) keeps the Tap pointed at the controller's current
-/// mixer and (4) keeps the provider's read head a fixed, small distance behind the write head.
+/// mixer, (4) keeps the provider's read head a fixed, small distance behind the write head and
+/// (5) gates what the ring receives on the "peers receive" signal (<see cref="TransmitSignal"/>),
+/// pushing silence instead of the decoded frame while nothing is sent to peers.
 /// <para>
 /// Cue: the last entry of <c>GlobalAudioEffects.Instance.VoiceCues</c>, the same cue kind the
 /// game hands remote players (spatial settings, attenuation and RTPCs identical). Its mixer
@@ -48,6 +51,14 @@ internal sealed class LocalVoiceRenderer
     private readonly ManualLogSource _log;
     private readonly SinkPump _pump;
     private readonly float _forwardMeters;
+    private readonly bool _gateEnabled;
+    private readonly TransmitGate _gate = new();
+    private volatile bool _transmitting = true; // fail open until the signal is read
+    private string _lastSignalState;
+    private long _signalChanges;
+    private bool _reportedSignalError;
+    private Il2CppSystem.ArraySegment<float> _gateSilence; // encoder thread only
+    private int _gateSilenceSamples;
     private LocalVoiceDecoder _decoder;
     private GameObject _voiceObject;
     private VoicePlayer _player;
@@ -74,11 +85,12 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate)
     {
         _log = log;
         _pump = pump;
         _forwardMeters = forwardMeters;
+        _gateEnabled = transmitGate;
         Instance = this;
     }
 
@@ -94,6 +106,7 @@ internal sealed class LocalVoiceRenderer
 
         RefreshTapTarget();
         PinEmitter();
+        SampleTransmitSignal();
         GuardLag();
         KeepRingFresh();
 
@@ -282,7 +295,9 @@ internal sealed class LocalVoiceRenderer
             var gapMs = (now - Interlocked.Read(ref _lastPushTimestamp)) * 1000.0 / Stopwatch.Frequency;
             Interlocked.Exchange(ref _lastPushTimestamp, now);
 
-            RoundTripProvider.Push(pcm);
+            // [impl->REQ-VOICE-CONTINUOUS]
+            var decision = _gateEnabled ? _gate.Decide(_transmitting, now * 1000.0 / Stopwatch.Frequency) : GateDecision.Pass;
+            RoundTripProvider.Push(decision == GateDecision.Pass ? pcm : GateSilence(count));
             if (gapMs > BurstGapMs) ResyncReadHead(count, "burst start");
 
             if (first) _log.LogInfo($"Local Voice: frame 1 step C, pushed; provider write head {RoundTripProvider.Provider?.CachedVoiceWriteHead}.");
@@ -293,6 +308,41 @@ internal sealed class LocalVoiceRenderer
             if (Interlocked.Increment(ref _decodeErrors) <= 3)
                 _log.LogError($"Local Voice: decode/push failed: {e}");
         }
+    }
+
+    /// <summary>Encoder thread: a zero frame of the decoded frame's length, reused across calls.</summary>
+    private Il2CppSystem.ArraySegment<float> GateSilence(int samples)
+    {
+        if (_gateSilenceSamples != samples)
+        {
+            _gateSilence = new Il2CppSystem.ArraySegment<float>(new Il2CppStructArray<float>(samples));
+            _gateSilenceSamples = samples;
+        }
+        return _gateSilence;
+    }
+
+    // [impl->REQ-VOICE-CONTINUOUS]
+    /// <summary>
+    /// Main thread: reads the "peers receive" signal into the flag the encoder thread gates on,
+    /// and logs the three candidate signals side by side once per state change (M2-PLAN question 1;
+    /// the first changes verbosely, then every 50th). A signal that cannot be read fails open.
+    /// </summary>
+    private void SampleTransmitSignal()
+    {
+        var sample = TransmitSignal.Read(out var error);
+        _transmitting = !sample.Available || sample.PeersReceive;
+        if (error is not null && !_reportedSignalError)
+        {
+            _reportedSignalError = true;
+            _log.LogWarning($"Transmit signal: read failed, gate stays open: {error}");
+        }
+
+        var state = sample.Describe();
+        if (state == _lastSignalState) return;
+        _lastSignalState = state;
+        var n = ++_signalChanges;
+        if (n <= 40 || n % 50 == 0)
+            _log.LogInfo($"Transmit signal #{n}: {state}");
     }
 
     /// <summary>
@@ -387,7 +437,8 @@ internal sealed class LocalVoiceRenderer
             $"provider write head {provider?.CachedVoiceWriteHead ?? -1}, lag {lag} smp ({lagMs:F0} ms), resyncs {Interlocked.Read(ref _resyncs)}, silence frames {_silenceFrames}; " +
             $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
             $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
-            $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}.");
+            $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}; " +
+            $"gate {(_gateEnabled ? "on" : "off")}: transmitting {_transmitting}, passed {_gate.FramesPassed}, silenced {_gate.FramesSilenced}, signal changes {_signalChanges}.");
         LogGameAudioState();
     }
 

@@ -1,5 +1,6 @@
 using System.Reflection;
 using BepInEx.Logging;
+using Dissonance;
 using Dissonance.Audio.Codecs;
 using Dissonance.Audio.Codecs.Opus;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
@@ -28,6 +29,9 @@ internal static class GameSymbols
     /// <summary><c>AudioFilterMixer.OnAudioFilterRead(float[], int)</c>: the end of the Filter Stage; the Tap sits here.</summary>
     public static MethodInfo AudioFilterMixerOnAudioFilterRead { get; private set; }
 
+    /// <summary><c>VoiceBroadcastTrigger.Start()</c>: where the transmit-signal probe collects the scene's triggers.</summary>
+    public static MethodInfo VoiceBroadcastTriggerStart { get; private set; }
+
     public static bool IsBound { get; private set; }
 
     // [impl->REQ-HAZARD-NO-PARTIAL-FIDELITY]
@@ -49,6 +53,7 @@ internal static class GameSymbols
             typeof(Il2CppSystem.ArraySegment<float>), typeof(NAudio.Wave.WaveFormat));
         AudioFilterMixerOnAudioFilterRead = Method(missing, typeof(AudioFilterMixer), "OnAudioFilterRead",
             typeof(Il2CppStructArray<float>), typeof(int));
+        VoiceBroadcastTriggerStart = Method(missing, typeof(VoiceBroadcastTrigger), "Start");
 
         // Fields and properties the renderer assigns or reads (interop exposes fields as properties).
         Property(missing, typeof(VoicePlayer), "Cue");
@@ -63,6 +68,20 @@ internal static class GameSymbols
         Property(missing, typeof(AudioManager), "ListenerPosition");
         Property(missing, typeof(LocalVoiceProvider), "CachedVoiceData");
         Property(missing, typeof(LocalVoiceProvider), "CachedVoiceWriteHead");
+
+        // Transmit signal (M2 T0): the open Dissonance channels and the broadcast triggers.
+        Property(missing, typeof(WorldManager), "instance");
+        Property(missing, typeof(WorldManager), "dissonanceComms");
+        Property(missing, typeof(DissonanceComms), "RoomChannels");
+        Property(missing, typeof(DissonanceComms), "PlayerChannels");
+        Property(missing, typeof(RoomChannels), "_openChannelsBySubId");
+        Property(missing, typeof(PlayerChannels), "_openChannelsBySubId");
+        Property(missing, typeof(RoomChannel), "_roomId");
+        Property(missing, typeof(RoomName), "Name");
+        Property(missing, typeof(PlayerChannel), "_playerId");
+        Property(missing, typeof(VoiceBroadcastTrigger), "IsTransmitting");
+        Property(missing, typeof(VoiceBroadcastTrigger), "RoomName");
+        Property(missing, typeof(VoiceBroadcastTrigger), "Mode");
 
         if (missing.Count > 0)
         {

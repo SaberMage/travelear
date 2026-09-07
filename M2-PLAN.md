@@ -134,7 +134,16 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
 
 ## Status log
 
-- (empty)
+- **T0 built** (2026-09-07): Core `TransmitGate` (Pass/Silence per frame, 100 ms release hold,
+  never-gap invariant) + 8 tests; `REQ-VOICE-CONTINUOUS` unit stage activated. Renderer samples
+  `TransmitSignal` each tick: signal (a) = any open room channel in
+  `WorldManager.instance.dissonanceComms.RoomChannels` other than `Echo`; encoder thread pushes a
+  zero frame instead of the decoded frame when the gate says Silence. Config
+  `Fidelity.TransmitGate` (default on). One-run probe logs (a), (b) triggers with `IsTransmitting`
+  (collected by a `VoiceBroadcastTrigger.Start` postfix) and (c) open player channels side by side
+  once per state change (`Transmit signal #n:` lines). Fail-open if the comms are missing or the
+  read throws. Awaiting the operator's in-game run: expect the noise floor gone between words,
+  onsets intact, and (a) to flip with speech.
 
 ## Gate
 
