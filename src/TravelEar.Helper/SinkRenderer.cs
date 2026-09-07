@@ -186,6 +186,7 @@ internal sealed class SinkRenderer : IDisposable
                         provider = new RingWaveProvider((int)header.SampleRate, header.Channels, (int)header.SampleRate * header.Channels / 2);
                         output = new WasapiOut(device, AudioClientShareMode.Shared, true, LatencyMs);
                         output.Init(provider);
+                        provider.Prime();
                         var clock = output;
                         provider.FallbackLatencySeconds = LatencyMs / 1000.0;
                         provider.PlayedSeconds = () =>

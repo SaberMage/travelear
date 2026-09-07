@@ -13,7 +13,10 @@ namespace TravelEar.Helper;
 /// The band between the two is the jitter budget: a pad (underrun) is a gap and a trim is a cut,
 /// and either lands mid-word as a click. M1 ran 30-80 ms, and M2 run 4 heard "debris" with the
 /// game rendering; the per-frame Offset spread inside one 10 s window was ~200 ms, so the band is
-/// now 100-200 ms. The cost is ~70 ms more Offset, which the Offset line reports.
+/// now 100-200 ms, and the ring is primed with <see cref="TargetBacklogMs"/> of silence at stream
+/// start (<see cref="Prime"/>): without that it floated at whatever the first frames left, 40-120 ms
+/// in M2 run 5, and a ~200 ms stall drained it (five pads in one second, heard as a crackle burst).
+/// The cost is ~100 ms more Offset, which the Offset line reports.
 /// </para>
 /// </summary>
 internal sealed class RingWaveProvider : IWaveProvider
@@ -54,6 +57,12 @@ internal sealed class RingWaveProvider : IWaveProvider
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
         _maxBacklogSamples = sampleRate * channels * MaxBacklogMs / 1000;
         _targetBacklogSamples = sampleRate * channels * TargetBacklogMs / 1000;
+    }
+
+    /// <summary>Queues <see cref="TargetBacklogMs"/> of silence ahead of the first frame; the pipe thread calls it once before playback starts.</summary>
+    public void Prime()
+    {
+        Ring.Write(new float[_targetBacklogSamples]);
     }
 
     public int Read(byte[] buffer, int offset, int count)

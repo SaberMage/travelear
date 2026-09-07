@@ -17,9 +17,10 @@ version becomes that GitHub Release's body verbatim.
   noise floor between words no longer reaches the Helper. The gate opens and closes with the
   game's own channel fade rather than a cut (`Fidelity.TransmitFadeOutMs` overrides the
   fade-out). `Fidelity.TransmitGate` turns it off for comparison.
-- M2 fix: the Helper keeps 100-200 ms of audio queued (was 30-80 ms) so scheduling jitter no
-  longer pads or trims the stream mid-word, and logs its underrun and trim counters every 10 s
-  to `%LOCALAPPDATA%\TravelEar\Helper.log`. The extra queue shows up in the Offset figure.
+- M2 fix: the Helper primes 100 ms of audio at stream start and keeps up to 200 ms queued (was
+  30-80 ms, unprimed) so scheduling jitter no longer pads or trims the stream mid-word, and logs
+  its underrun and trim counters every 10 s to `%LOCALAPPDATA%\TravelEar\Helper.log`. The
+  extra queue shows up in the Offset figure.
 - M2 T3: Helper lifecycle and Sink format. The Helper is spawned once per game launch, outside
   the game's process tree (so OBS cannot fold it into the game's capture), and never respawned;
   the Sink pipe re-arms no more often than every 5 s. `Sink.Downmix` now works: Local Voice is

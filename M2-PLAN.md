@@ -235,6 +235,27 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   frame path (a `Fidelity.TransmitGate = false` run and a T1-off comparison). A test tone
   from a second Helper (`TravelEar.Helper.exe --tone`) under game load is the quickest ear
   test for (2).
+- **M2 run 5** (2026-09-07, operator solo run on `a574ec6`, OBS recording
+  `C:\Users\decid\Videos\2026-09-07 04-34-25.mkv`): Local Voice "mostly pretty clean", one
+  short crackle burst at 1:25; a second Helper's test tone under game load had no crackle
+  (VoiceMeeter's engine cleared). Helper.log counters: trims 0 all run; underruns 4 at
+  start-up, then 8 -> 13 in the 04:35:47-57 window, which is 1:22-1:32 of the recording: the
+  burst is five pads in a row, a ~200 ms stall in the pipe delivery. The ring floated at
+  40-120 ms (buffered 3712-11776 interleaved samples) because nothing fills it to the
+  target: the band only trims from above. Game-side counters clean again (resyncs 5, all
+  before the first word; silence frames flat through speech; Sink ring 0/0). `Offset:`
+  354-358 ms (per frame 302-409 ms), up ~60 ms from run 4 as the pads accumulated. Also
+  seen: the Helper rendered to the system default (VoiceMeeter Input) while the operator's
+  routing expects VoiceMeeter Aux Input, so the OBS mix doubled it; `Sink.SinkEndpoint` set
+  to `Aux Input` in the game's config for this machine (the default stays the system device
+  for other users). **The run 3-5 debris is closed as the Helper's jitter budget, not the
+  gate and not the frame path.**
+- **Fix: prime the Helper ring** (2026-09-07): `RingWaveProvider.Prime` queues
+  `TargetBacklogMs` (100 ms) of silence before playback starts, so the floor is 100 ms
+  instead of whatever the first frames left. Expect `Offset:` around 400 ms and the underrun
+  counter flat after start-up; a stall longer than the floor still pads, by design (the
+  alternative is unbounded latency). Operator check owed (run 6): no crackle; Helper.log
+  underruns flat after the first line; `Offset:` plausible; Helper on Aux Input.
 - **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
   `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
   Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged
