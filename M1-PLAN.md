@@ -111,8 +111,53 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
   `DissonanceFrame`, logs the first 5 frames at Info (seq, session, sender, channel session,
   channels, payload bytes), then a summary every 250 packets; rejects at Warning; raises
   `FrameTapped` for T3. Plugin references `TravelEar.Core`; `DeployToGame` copies both DLLs.
-  Deployed to the game. **Awaiting operator: open question 2** (host a solo session, PTT, read
-  `BepInEx\LogOutput.log` for `Tap: VoiceData seq=...` lines).
+  Deployed to the game.
+- **T2 in-game runs 1-4** (2026-09-07, solo host each time):
+  1. Bind ok, detour installed, zero tap lines.
+  2. Canaries on `SendReliable`/`Send`: HandshakeRequest + ClientState seen, bytes big-endian and
+     session id byte-exact with Dissonance's log => **Harmony postfixes fire under IL2CPP and the
+     `DissonanceFrame` layout is right**. `SendUnreliable` never called: a host with no listeners
+     builds no VoiceData packet.
+  3. `BaseClient<...>.SendVoiceData` postfix: never fired either (generic base class; IL2CPP
+     generic sharing suspected of routing calls past the detour).
+  4. `VoiceBroadcastTrigger` probe: the game's own "Self Echo" trigger (mode Open, room `Echo`)
+     keeps a room channel open all session; VAD fires on the `GhostRoom` trigger; local player
+     `IsSpeaking=true`. So transmit IS on solo; the send-side hooks were the wrong place.
+     Also seen: `RadioBroadcastTriggers` (Open, rooms RingRoom1-4, MegaphoneA-C,
+     MegaphoneSecretZone, Interviewer, InterviewSubject, CenturionSeance, RadioA, TrainIntercom;
+     only open with the token), `VoiceColliderTrigger` (VoiceActivation, type Self).
+  5. Next: non-generic `OpusEncoder.Encode(samples, buffer)` postfix (`__result` = exact encoded
+     frame = Outbound Voice per CONTEXT.md) + `EncoderPipeline.EncodeFrames` canary. Deployed,
+     awaiting the run.
+
+### T3 signature notes (from the interop assemblies, 2026-09-07)
+
+- `VoicePlayer : MonoBehaviour` is itself the `IAudioFilter` (`ProcessSamples(ref
+  Il2CppStructArray<float> data, int channels)`, `UpdateVariables(float)`); fields
+  `LocalVoiceProvider LocalVoiceProvider`, `SamplePlaybackComponent SamplePlaybackComponent`,
+  `VoicePlayerType PlayerType`, `AudioSourceController _controller`, `SoundCue Cue`,
+  `int _readHead`, `UpdateReadHead(int)`, `_bypass`, megaphone/walkie mixers.
+- Provider contract (game `IVoiceDataProvider`): `Il2CppStructArray<float> CachedVoiceData`,
+  `int CachedVoiceWriteHead`, `int RecommendedVoiceReadHead`, `Action OnWriteHeadJump`.
+  `LocalVoiceProvider : MonoBehaviour` implements it plus `IMicrophoneSubscriber` via the public
+  proxy method `Dissonance_Audio_Capture_IMicrophoneSubscriber_ReceiveMicrophoneData(ArraySegment<float>, WaveFormat)`;
+  `WorldManager.instance.localVoiceProvider` is the game's own instance.
+- `AudioFilterMixer : MonoBehaviour { List<IAudioFilter> Filters; OnAudioFilterRead(Il2CppStructArray<float>, int) }`
+  => the Tap can be a Harmony postfix on `OnAudioFilterRead` filtered to the mod-owned mixer
+  instance (copy then zero), no managed IL2CPP interface needed.
+- `AudioSourceController.AddFilter(IAudioFilter, int index = -1)`, `RemoveFilter`, `Play(SoundCue,
+  Vector3, Object owner, ...)`, `SetupController(...)`, `Initialize()`.
+- `OpusDecoder(WaveFormat format, bool fec = true)`, `int Decode(EncodedBuffer input,
+  ArraySegment<float> output)`; `EncodedBuffer(Nullable<ArraySegment<byte>> encoded, bool
+  packetLost)`; `NAudio.Wave.WaveFormat(int sampleRate, int channels)` (inside DissonanceVoip).
+  Session codec: Opus, FrameSize 2880 samples, 48 kHz, FEC on (from the Dissonance start log).
+- `SamplePlaybackComponent` (remote players' provider): `MakeupGain`, `ARV`, `OutputARV`,
+  `_compressor` (VoiceCompressor), soft-clip constants, `CachedVoiceData`.
+- `VoiceMakeupGain` static: `s_states: Dictionary<string, State>`, `TargetARV`, slew/settle
+  constants; `State { Envelope, Level, SpeechSeconds, GainDb }`.
+- `LocalVoicePlayer` = the game's self-voice player (mic cache based); leave untouched.
+- Also present: `LocalVoiceSaver : MonoBehaviour, IMicrophoneSubscriber` with an
+  `AudioSampleSaver` (a game debug feature that writes the mic feed; not used by us).
 
 ## Gate
 
