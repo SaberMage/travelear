@@ -1,5 +1,6 @@
 using System.Reflection;
 using BepInEx.Logging;
+using Dissonance;
 using Dissonance.Integrations.MirrorIgnorance;
 using Dissonance.Networking;
 
@@ -23,6 +24,12 @@ internal static class GameSymbols
     public static MethodInfo MirrorClientSend { get; private set; }
     public static MethodInfo CommsNetworkPreprocessPacketToServer { get; private set; }
 
+    /// <summary>Spike S2 trigger probe (see <see cref="SpikeTriggerProbe"/>).</summary>
+    public static MethodInfo TriggerStart { get; private set; }
+    public static MethodInfo TriggerUpdate { get; private set; }
+    public static MethodInfo TriggerOpenChannel { get; private set; }
+    public static MethodInfo TriggerCloseChannel { get; private set; }
+
     public static bool IsBound { get; private set; }
 
     // [impl->REQ-HAZARD-NO-PARTIAL-FIDELITY]
@@ -44,6 +51,11 @@ internal static class GameSymbols
             typeof(Il2CppSystem.ArraySegment<byte>), typeof(byte));
         CommsNetworkPreprocessPacketToServer = Method(missing, typeof(MirrorIgnoranceCommsNetwork), "PreprocessPacketToServer",
             typeof(Il2CppSystem.ArraySegment<byte>));
+
+        TriggerStart = Method(missing, typeof(VoiceBroadcastTrigger), "Start");
+        TriggerUpdate = Method(missing, typeof(VoiceBroadcastTrigger), "Update");
+        TriggerOpenChannel = Method(missing, typeof(VoiceBroadcastTrigger), "OpenChannel");
+        TriggerCloseChannel = Method(missing, typeof(VoiceBroadcastTrigger), "CloseChannel");
 
         if (missing.Count > 0)
         {

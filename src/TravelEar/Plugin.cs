@@ -43,6 +43,8 @@ public sealed class Plugin : BasePlugin
             Logger.LogInfo("Encoded Voice tap installed on BaseClient.SendVoiceData.");
             SpikeCanary.PatchAll(_harmony);
             Logger.LogInfo("Spike canaries installed (SendReliable, Send, PreprocessPacketToServer).");
+            SpikeTriggerProbe.PatchAll(_harmony);
+            Logger.LogInfo("Spike trigger probe installed (VoiceBroadcastTrigger Start/Update/Open/Close).");
         }
         catch (Exception e)
         {
