@@ -1,6 +1,7 @@
 using System.Reflection;
 using BepInEx.Logging;
 using Dissonance.Integrations.MirrorIgnorance;
+using Dissonance.Networking;
 
 namespace TravelEar;
 
@@ -13,6 +14,9 @@ internal static class GameSymbols
 {
     /// <summary><c>MirrorIgnoranceClient.SendUnreliable(ArraySegment&lt;byte&gt;)</c>: every Outbound Voice packet passes through here.</summary>
     public static MethodInfo MirrorClientSendUnreliable { get; private set; }
+
+    /// <summary><c>BaseClient&lt;...&gt;.SendVoiceData(ArraySegment&lt;byte&gt;)</c>: every encoded Opus frame while transmitting, peers or not.</summary>
+    public static MethodInfo BaseClientSendVoiceData { get; private set; }
 
     /// <summary>Spike S2 canaries (see <see cref="SpikeCanary"/>).</summary>
     public static MethodInfo MirrorClientSendReliable { get; private set; }
@@ -31,6 +35,8 @@ internal static class GameSymbols
         var missing = new List<string>();
 
         MirrorClientSendUnreliable = Method(missing, typeof(MirrorIgnoranceClient), "SendUnreliable",
+            typeof(Il2CppSystem.ArraySegment<byte>));
+        BaseClientSendVoiceData = Method(missing, typeof(BaseClient<MirrorIgnoranceServer, MirrorIgnoranceClient, MirrorConn>), "SendVoiceData",
             typeof(Il2CppSystem.ArraySegment<byte>));
         MirrorClientSendReliable = Method(missing, typeof(MirrorIgnoranceClient), "SendReliable",
             typeof(Il2CppSystem.ArraySegment<byte>));
