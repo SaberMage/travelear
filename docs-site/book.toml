@@ -12,4 +12,3 @@ build-dir = "book"
 additional-css = ["theme/theme.css"]
 git-repository-url = "https://github.com/SaberMage/travelear"
 edit-url-template = "https://github.com/SaberMage/travelear/edit/main/docs-site/{path}"
-site-url = "/travelear/"

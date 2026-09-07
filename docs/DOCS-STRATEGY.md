@@ -6,9 +6,10 @@
 > product docs** (authored as code lands). The planning docs (CONTEXT / ADRs / design docs) are
 > internal and separate.
 >
-> **Where the docs live (the reframe):** docs live in **this same repo** under `docs-site/`.
-> CI builds them with **mdBook** and **publishes to GitHub Pages from this repo**, gated against
-> drift. (No separate releases/publish repo — source of truth and published site are one repo.)
+> **Where the docs live:** docs live in **this same repo** under `docs-site/` and are read there
+> as markdown. `mdbook build docs-site` runs in the manual gates (`scripts/gates.ps1`) as a
+> well-formedness check; nothing is published to GitHub Pages (`docs/CI.md`). Where this file
+> says "CI", read "the manual gates run before each release".
 
 ## The defining constraint: a dual audience
 

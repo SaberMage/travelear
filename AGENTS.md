@@ -51,8 +51,8 @@ This project uses [`traceable-reqs`](https://github.com/BigscreenVR/traceable-re
   build is a CI gate.
 - **Local build needs the game.** The plugin references proxy assemblies under the Big Walk
   install (`GameDir` in `Directory.Build.props`, override in `Directory.Build.props.user`).
-  Hosted runners cannot build the plugin; the build gate runs on a fleet host with the game
-  installed (`docs/CI.md`).
+- **No hosted CI.** No GitHub Actions or runners; `pwsh scripts/gates.ps1` is the whole CI and
+  runs by hand before work is declared done and before every release (`docs/CI.md`).
 - Commit messages end with the co-author trailer of the agent that wrote them. Live agent
   commits add `Co-authored by: lia`; harness trailers (e.g. `Co-Authored-By: Claude …`) are kept
   as well.

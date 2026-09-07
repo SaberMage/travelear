@@ -1,69 +1,43 @@
-# CI model — agent-driven, autonomous, no-LLM-in-the-loop
+# CI model — manual, deterministic, no hosted runners
 
-> The default CI pattern for projects built from this skeleton: **deterministic gates** run by a
-> **fleet runner-agent**, triggered by a git hook, reporting over **your messaging bus**. No LLM
-> sits in the gate path — the gates are plain scripts; the "agent" is just the autonomous runner
-> that fires them and reports. A hosted-runner workflow is an optional fallback.
-
-## TravelEar specifics
-
-- The plugin build needs Big Walk's Il2CppInterop proxy assemblies, which exist only on a
-  machine with the game installed. The **build gate runs on the fleet host** that has the game
-  (`GameDir` in `Directory.Build.props`), never on a hosted runner.
-- The manual "run gates" command is `pwsh scripts/gates.ps1` (build → unit tests →
-  `traceable-reqs check` → `mdbook build docs-site`).
-- Hosted fallbacks exist for the game-independent gates: `.github/workflows/traceability.yml`
-  (coverage gate) and `.github/workflows/docs-publish.yml` (docs build + GitHub Pages).
-- The `traceable-reqs` CLI is released from a **private** repo, so the hosted coverage gate
-  only runs when the repository secret `TRACEABLE_REQS_TOKEN` (a fine-grained PAT with read
-  access to `BigscreenVR/traceable-reqs` releases) is set. Without it the job skips with a
-  notice; the fleet-host gate is the binding one either way.
+> TravelEar deliberately runs **no hosted CI**: no GitHub Actions, no external runners. The
+> project is small-scope, and the plugin build needs Big Walk's Il2CppInterop proxy assemblies,
+> which exist only on a machine with the game installed. The gates are plain scripts run by hand
+> (or by a live agent) on a dev host before every release and before any work is declared done.
 
 ## The gates (deterministic)
 
 Every gate is a script with a binary pass / fail — no judgment, no model:
 
-1. **Build** — the project compiles / assembles clean.
-2. **Unit tests** — the suite passes.
-3. **`traceable-reqs check`** — requirement coverage gate; exit-1 fails the build (see
+1. **Build** — `dotnet build TravelEar.sln -c Release` compiles the plugin against the game's
+   proxy assemblies and the Helper.
+2. **Unit tests** — `dotnet test` on `tests/` (skipped with a notice until the first test
+   project exists).
+3. **`traceable-reqs check`** — requirement coverage gate; exit-1 fails (see
    `docs/TRACEABILITY.md`).
-4. **Docs-drift** — generated docs (API reference, `llms.txt`, schema, CLI help) are regenerated
-   and must match what's checked in; a diff fails (see `docs/DOCS-STRATEGY.md`).
+4. **Docs build** — `mdbook build docs-site` must succeed; the site is read in-repo and built
+   locally, never published by a hosted job.
 
-Add project-specific deterministic gates here as needed (lint, schema validation, etc.). If your
-project has acceptance tests that need a real environment, keep the *system under test* separate
-from the *runner* — the runner orchestrates and asserts; it never *is* the thing being judged.
+## Running the gates
 
-## Trigger: git hook → ping a runner-agent over the bus
+```
+pwsh scripts/gates.ps1            # all gates
+pwsh scripts/gates.ps1 -SkipDocs  # while iterating on code
+```
 
-The default trigger is **push-driven, not polling** (polling adds latency and wastes cycles):
+Run them:
 
-1. A **git post-push hook** fires after a push.
-2. The hook **pings a fleet runner-agent over your messaging bus** (a one-line "run gates for
-   `<ref>`" message to the responsible runner).
-3. The runner-agent **runs the deterministic gates** on the fleet.
-4. The runner **reports the result back over the bus** to the responsible agent / channel.
+- before declaring any body of work done (binding rule in `AGENTS.md`);
+- before every release tag (`docs/RELEASE-RUNBOOK.md`).
 
-This dogfoods the messaging bus as the project's own CI nervous system, and runs the gates on a
-**real fleet host** — which matters when the acceptance bar needs a real environment a stock
-hosted runner can't provide.
+The host needs: .NET 8 SDK, Big Walk with BepInEx 6 launched at least once (so
+`BepInEx/interop/` exists), `traceable-reqs` on `PATH`, and `mdbook`.
 
-### Discovering the messaging-bus binary (robustly)
+## What is deliberately not here
 
-The bus binary's path may **change between versions** (it can live in a per-version plugins
-folder or tool directory). The hook and runner **must locate it robustly** — resolve it at run
-time (search the known install roots / a configured path / `PATH`) rather than hard-coding a
-versioned location. A stale hard-coded path is the most likely cause of a silently dead trigger.
-
-## Manual fallback
-
-A **manual "run gates" command** must always exist — the same gate scripts, runnable by hand on
-any fleet host. Use it when the hook didn't fire, when reproducing a failure, or before a hook is
-wired at all.
-
-## Hosted-runner workflow (optional)
-
-A hosted CI workflow (e.g. GitHub Actions) is an **optional fallback**, useful for the pure
-deterministic gates that need no special environment. `docs/TRACEABILITY.md` carries a ready
-GitHub Actions snippet for the `traceable-reqs check` gate. Prefer the agent-driven fleet pattern
-as the primary path when your acceptance tests need a real harness a hosted runner can't run.
+- No `.github/workflows/`. Adding one is a scope decision for the operator, not a default.
+- No GitHub Pages. `docs-site/` is the documentation source of truth and is browsable on
+  GitHub as markdown; `mdbook build` is a local check that it stays well-formed.
+- No git-hook trigger or fleet runner-agent. If the project grows, the pattern to adopt is a
+  post-push hook that pings a runner-agent over the messaging bus to run `scripts/gates.ps1`
+  and report back; until then, the manual command is the whole CI.

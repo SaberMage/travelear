@@ -36,12 +36,14 @@ mic ─► Dissonance preprocess ─► Opus encode ─► Mirror send ───
 
 ## Components
 
+<!-- [doc->REQ-VOICE-OUTBOUND-TAP] -->
 ### Outbound Voice tap (`TravelEar` plugin)
 
 Harmony postfix on the Dissonance Mirror client's unreliable send. Parses the Dissonance VoiceData frame (documented wire format: magic `0x8BC7`, type, session, sender id, flags, sequence, channel list, Opus payload) and hands the Opus payload plus sequence number to the decoder. Because it sees the real packets, push-to-talk, voice activation, and FEC state are reproduced by construction.
 
 Fallback if the frame parse proves fragile: subscribe to Dissonance's recorded-audio feed and run the mod's own `OpusEncoder` / `OpusDecoder` pair with the game's `VoiceSettings`.
 
+<!-- [doc->REQ-VOICE-ROUNDTRIP] -->
 ### Round-trip provider
 
 Implements the game's `IVoiceDataProvider` ring-buffer contract (the same interface `SamplePlaybackComponent` and `LocalVoiceProvider` implement) so any game `VoicePlayer` can consume it unchanged. Emits silence when no packets arrive, so the stream never gaps.
@@ -58,6 +60,8 @@ Self-Ear parameters: evaluate the game's attenuation, filter-distance, filter-an
 
 Reads the same per-channel mixer floats the game writes (`Dry{n}`, `High{n}`, `ReverbFallWet{n}`, `ReverbBoostWet{n}`, `Megaphone{n}Wet/Dry`, HP/LP, compressors) and applies equivalent DSP in the mod. Each effect has a config toggle. Reverb is approximated; calibrate against a recording made on a second client hearing the same speech.
 
+<!-- [doc->REQ-SINK-HELPER-PROCESS] -->
+<!-- [doc->REQ-SINK-ENDPOINT-CONFIG] -->
 ### Sink transport and Helper
 
 Mod side: named pipe server `TravelEar.Sink`, frames of float32 interleaved PCM at 48 kHz with a small header (channel count, capture timestamp). Helper side: .NET 8 self-contained WinExe, minimized window titled "TravelEar for Big Walk", NAudio `WasapiOut` on a dedicated thread to the endpoint matching config `SinkEndpoint` (empty = system default). Helper writes render timestamps back on the pipe so the mod can compute Offset.
