@@ -1,6 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
 using NAudio.Wave;
+using TravelEar.Core;
 using UnityEngine;
 
 namespace TravelEar;
@@ -30,6 +31,15 @@ internal static class RoundTripProvider
     public static LocalVoiceProvider Provider { get; private set; }
     public static long FramesPushed;
 
+    /// <summary>
+    /// Capture timestamps keyed by provider ring position (<c>REQ-OFFSET-MEASURE</c>): every push,
+    /// voice or silence, marks the span it wrote, so the Tap can resolve the block it is handed to
+    /// the encode timestamp of the frame it came from. Producers (encoder and main thread) are
+    /// serialized by <see cref="PushLock"/>; the Tap resolves on the audio thread lock-free.
+    /// </summary>
+    public static readonly FrameStampTable Stamps = new();
+    private static readonly object PushLock = new();
+
     /// <summary>Adds the provider to <paramref name="host"/>, which must be inactive so Awake/Start run after setup.</summary>
     public static LocalVoiceProvider Create(GameObject host)
     {
@@ -40,12 +50,23 @@ internal static class RoundTripProvider
     }
 
     // [impl->REQ-VOICE-ROUNDTRIP]
-    /// <summary>Pushes one decoded frame. Safe from any IL2CPP-attached thread; the provider locks its ring.</summary>
-    public static void Push(Il2CppSystem.ArraySegment<float> pcm)
+    // [impl->REQ-OFFSET-MEASURE]
+    /// <summary>
+    /// Pushes one decoded frame of <paramref name="samples"/> mono samples and marks the ring span it
+    /// occupies (<paramref name="samples"/> x the ring's channel count, starting at the write head
+    /// before the push) with <paramref name="captureTimestamp"/> (<see cref="FrameStampTable.NoStamp"/>
+    /// for silence the mod generated). Safe from any IL2CPP-attached thread.
+    /// </summary>
+    public static void Push(Il2CppSystem.ArraySegment<float> pcm, int samples, int ringChannels, long captureTimestamp)
     {
         var provider = Provider;
         if (provider is null) return;
-        provider.Dissonance_Audio_Capture_IMicrophoneSubscriber_ReceiveMicrophoneData(pcm, _format);
+        lock (PushLock)
+        {
+            var start = provider.CachedVoiceWriteHead;
+            provider.Dissonance_Audio_Capture_IMicrophoneSubscriber_ReceiveMicrophoneData(pcm, _format);
+            if (samples > 0) Stamps.Mark(start, samples * Math.Max(1, ringChannels), captureTimestamp);
+        }
         Interlocked.Increment(ref FramesPushed);
     }
 

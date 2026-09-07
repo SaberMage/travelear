@@ -25,6 +25,12 @@ public sealed class VoiceRingBuffer
     /// <summary>Samples currently buffered and not yet read.</summary>
     public int Count => (int)(Volatile.Read(ref _head) - Volatile.Read(ref _tail));
 
+    /// <summary>Monotonic position of the next sample <see cref="Write"/> stores (samples ever stored).</summary>
+    public long WritePosition => Volatile.Read(ref _head);
+
+    /// <summary>Monotonic position of the next sample <see cref="Read"/> returns (samples ever consumed or discarded).</summary>
+    public long ReadPosition => Volatile.Read(ref _tail);
+
     /// <summary>Samples dropped by <see cref="Write"/> because the ring was full.</summary>
     public long DroppedSamples => Volatile.Read(ref _dropped);
 

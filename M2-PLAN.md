@@ -157,6 +157,28 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   check still owed: after a game launch, Task Manager shows the Helper outside the game's
   tree, and OBS's game capture stays free of Local Voice with `SinkEndpoint` on the default
   device. `HelperOptions` gained the flag with a round-trip test.
+- **T2 built** (2026-09-07, still ahead of T0's run and T1's report): Offset end to end,
+  question 4 settled as planned (second inbound-only pipe `TravelEar.Sink.Back`, 20-byte
+  `OffsetReportFrame` records). The "timestamp queue keyed by sample count" became a
+  position-keyed table instead: Core `FrameStampTable` (writer marks span + timestamp per
+  block, reader resolves a position modulo the ring, newest mark wins, per-slot seqlock so the
+  audio thread never locks) + 8 tests including a producer/consumer torn-read test. Why
+  positions, not counts: the provider ring is written by two threads (encoder voice, main-thread
+  silence) and the read head is jumped by resyncs, so counting samples would drift; matching by
+  wrapped ring index survives both, provided every push marks (silence marks "none", which also
+  shadows stale marks a ring ago). Three hand-offs: provider ring (`RoundTripProvider.Push` now
+  takes the sample count and timestamp and serializes pushes with a lock; the Tap resolves
+  `_readHead - block.Length` against it), Sink ring (`TapFilter.SinkStamps`; the pump stamps
+  the header, 0 = none), Helper ring (`RingWaveProvider.Stamps`; render time = now + queued
+  seconds from `WasapiOut.GetPosition()` against bytes provided, nominal 40 ms if the clock
+  throws). Helper drains reports on its own thread to the return pipe (drops them when the mod
+  is absent, bounded queue); mod `OffsetMonitor` serves the pipe with the same 5 s re-arm
+  cadence, `OffsetAverager` (10 s window, 5 tests) and logs `Offset: N ms rolling 10 s average
+  (count, min-max)` every 10 s; `LastAverageMs` kept for the M3 settings row. Config
+  `Fidelity.ReadHeadMarginFrames` (default 1.5) replaces the constant; resync count was already
+  in the stats line. `REQ-OFFSET-MEASURE` doc+impl+unit. Operator check owed: after a run, the
+  `Offset:` lines exist, the number is plausible (expect roughly the 150-180 ms ring lag plus
+  ~50 ms of Sink/endpoint), and lowering the margin lowers it until resyncs climb.
 
 ## Gate
 

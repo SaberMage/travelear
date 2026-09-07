@@ -19,3 +19,6 @@ version becomes that GitHub Release's body verbatim.
   the game's process tree (so OBS cannot fold it into the game's capture), and never respawned;
   the Sink pipe re-arms no more often than every 5 s. `Sink.Downmix` now works: Local Voice is
   folded to mono before it reaches the Helper.
+- M2 T2: Offset measurement. The delay from your mic (as the game encodes it) to the Helper's
+  output is measured end to end and logged every 10 s as a rolling average, ready to use as the
+  OBS sync offset. `Fidelity.ReadHeadMarginFrames` tunes the largest part of that delay.

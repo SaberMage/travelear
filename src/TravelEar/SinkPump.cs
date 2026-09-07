@@ -91,8 +91,10 @@ internal sealed class SinkPump : IDisposable
 
                     var count = frames * channels;
                     var samples = buffer.AsSpan(0, count);
+                    // [impl->REQ-OFFSET-MEASURE]
+                    var readPosition = _ring.ReadPosition;
                     _ring.Read(samples);
-                    var captured = Stopwatch.GetTimestamp();
+                    if (!TapFilter.SinkStamps.TryResolve(readPosition, 0, out var captured)) captured = FrameStampTable.NoStamp;
 
                     // [impl->REQ-SINK-FORMAT]
                     if (channels > 1 && _downmix())

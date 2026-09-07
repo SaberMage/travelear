@@ -49,6 +49,7 @@ internal sealed class SinkRenderer : IDisposable
         // The pipe read is blocking; closing the stream unblocks it (see Run).
         _pipe?.Dispose();
         if (_thread is not null && _thread != Thread.CurrentThread) _thread.Join(3000);
+        _backThread?.Join(1500);
     }
 
     public void Dispose()
@@ -58,6 +59,10 @@ internal sealed class SinkRenderer : IDisposable
     }
 
     private NamedPipeClientStream? _pipe;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<OffsetReport> _reports = new();
+    private const int MaxQueuedReports = 256;
+    private Thread? _backThread;
+    private NamedPipeClientStream? _backPipe;
 
     private void Run()
     {
@@ -180,11 +185,26 @@ internal sealed class SinkRenderer : IDisposable
                         provider = new RingWaveProvider((int)header.SampleRate, header.Channels, (int)header.SampleRate * header.Channels / 2);
                         output = new WasapiOut(device, AudioClientShareMode.Shared, true, LatencyMs);
                         output.Init(provider);
+                        var clock = output;
+                        provider.FallbackLatencySeconds = LatencyMs / 1000.0;
+                        provider.PlayedSeconds = () =>
+                        {
+                            try { return (double)clock.GetPosition() / clock.OutputWaveFormat.AverageBytesPerSecond; }
+                            catch (Exception) { return null; }
+                        };
+                        provider.Reported = report =>
+                        {
+                            if (_reports.Count < MaxQueuedReports) _reports.Enqueue(report);
+                        };
                         output.Play();
+                        StartBackPipe();
                         HelperLog.Write($"Stream format: {header.SampleRate} Hz, {header.Channels} ch");
                     }
 
+                    // [impl->REQ-OFFSET-MEASURE]
+                    var writePosition = provider.Ring.WritePosition;
                     provider.Ring.Write(samples.AsSpan(0, header.SampleCount));
+                    if (header.SampleCount > 0) provider.Stamps.Mark(writePosition, header.SampleCount, header.CaptureTimestamp);
                     frames++;
                 }
                 catch (IOException) when (_stop.IsCancellationRequested) { break; }
@@ -205,7 +225,8 @@ internal sealed class SinkRenderer : IDisposable
                             $"Stream   : {provider.SampleRate} Hz {provider.Channels} ch\n" +
                             $"Frames   : {frames}   buffered {provider.Ring.Count} samples\n" +
                             $"Underruns: {provider.Ring.Underruns}   dropped {provider.Ring.DroppedSamples}\n" +
-                            $"Trims    : {provider.Trims} ({provider.TrimmedSamples} samples; cap {RingWaveProvider.MaxBacklogMs} ms)");
+                            $"Trims    : {provider.Trims} ({provider.TrimmedSamples} samples; cap {RingWaveProvider.MaxBacklogMs} ms)\n" +
+                            $"Offset   : {provider.Reports} reports{(_backPipe?.IsConnected == true ? "" : " (return pipe not connected)")}");
                 }
             }
         }
@@ -215,5 +236,59 @@ internal sealed class SinkRenderer : IDisposable
             output?.Dispose();
         }
         HelperLog.Write($"Pipe closed after {frames} frames.");
+    }
+
+    // [impl->REQ-OFFSET-MEASURE]
+    /// <summary>
+    /// Drains <see cref="_reports"/> to the return pipe on its own thread. The mod serves the pipe;
+    /// while it is not there, reports are dropped and the connection retried every second. Nothing
+    /// here can stall the render thread or the Sink read.
+    /// </summary>
+    private void StartBackPipe()
+    {
+        if (_backThread is not null) return;
+        _backThread = new Thread(RunBackPipe) { Name = "TravelEar.OffsetBack", IsBackground = true };
+        _backThread.Start();
+    }
+
+    private void RunBackPipe()
+    {
+        var scratch = new byte[OffsetReportFrame.Size];
+        var name = HelperOptions.BackPipeName(_options.PipeName);
+        while (!_stop.IsCancellationRequested)
+        {
+            try
+            {
+                using var pipe = new NamedPipeClientStream(".", name, PipeDirection.Out, PipeOptions.None);
+                _backPipe = pipe;
+                try { pipe.Connect(PipeRetryMs); }
+                catch (TimeoutException) { while (_reports.TryDequeue(out _)) { } continue; }
+                HelperLog.Write("Return pipe connected.");
+
+                while (!_stop.IsCancellationRequested)
+                {
+                    if (!_reports.TryDequeue(out var report))
+                    {
+                        _stop.Token.WaitHandle.WaitOne(20);
+                        continue;
+                    }
+                    OffsetReportFrame.WriteTo(pipe, report, scratch);
+                }
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException or UnauthorizedAccessException)
+            {
+                HelperLog.Write($"Return pipe closed ({e.GetType().Name}); retrying.");
+                _stop.Token.WaitHandle.WaitOne(PipeRetryMs);
+            }
+            catch (Exception e)
+            {
+                HelperLog.Write($"Return pipe error: {e.Message}");
+                _stop.Token.WaitHandle.WaitOne(PipeRetryMs);
+            }
+            finally
+            {
+                _backPipe = null;
+            }
+        }
     }
 }

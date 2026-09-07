@@ -29,8 +29,26 @@ internal static class TapFilter
     public static long Blocks;
     public static float LastPeak;
 
+    /// <summary>
+    /// Capture timestamps keyed by Sink ring position (<c>REQ-OFFSET-MEASURE</c>): the Tap marks
+    /// each block it stores with the timestamp it resolved from the provider ring; the pump
+    /// resolves the position it reads to stamp the Sink frame header.
+    /// </summary>
+    public static readonly FrameStampTable SinkStamps = new();
+
+    private static volatile VoicePlayer _player;
+    private static volatile int _providerRingLength;
+    public static long StampsResolved;
+
     /// <summary>Points the Tap at a mixer (its IL2CPP object pointer); <see cref="IntPtr.Zero"/> disables it.</summary>
     public static void SetTarget(IntPtr mixer) => Interlocked.Exchange(ref _target, (long)mixer);
+
+    /// <summary>The VoicePlayer whose read head the Tap resolves against, and its provider ring length (samples).</summary>
+    public static void SetReader(VoicePlayer player, int providerRingLength)
+    {
+        _providerRingLength = providerRingLength;
+        _player = player;
+    }
 
     [HarmonyTargetMethod]
     private static MethodBase TargetMethod() => GameSymbols.AudioFilterMixerOnAudioFilterRead;
@@ -53,6 +71,28 @@ internal static class TapFilter
         Channels = channels;
         BlockLength = block.Length;
         Interlocked.Increment(ref Blocks);
+
+        // [impl->REQ-OFFSET-MEASURE]
+        // The VoicePlayer (filter 0) advanced its read head by this block before we ran, so the
+        // block's first sample sat block.Length behind it. Resolve that provider ring position to
+        // the encode timestamp and carry it on the Sink ring position we are about to write.
+        var stamp = FrameStampTable.NoStamp;
+        var player = _player;
+        var ringLength = _providerRingLength;
+        if (player is not null && ringLength > 0)
+        {
+            try
+            {
+                long blockStart = (long)player._readHead - block.Length;
+                if (RoundTripProvider.Stamps.TryResolve(blockStart, ringLength, out stamp))
+                    Interlocked.Increment(ref StampsResolved);
+            }
+            catch (Exception)
+            {
+                stamp = FrameStampTable.NoStamp; // never let Offset bookkeeping disturb the audio thread
+            }
+        }
+        if (block.Length > 0) SinkStamps.Mark(Ring.WritePosition, block.Length, stamp);
 
         TapDivert.Divert(block, Ring);
     }

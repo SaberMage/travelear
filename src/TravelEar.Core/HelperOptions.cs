@@ -15,6 +15,12 @@ public sealed record HelperOptions(string EndpointSetting, bool Tone, string Pip
 
     public static readonly HelperOptions Default = new("", false, DefaultPipeName, false);
 
+    /// <summary>The return pipe the Helper writes <see cref="OffsetReport"/>s on: the Sink pipe's name plus <c>.Back</c>.</summary>
+    public static string BackPipeName(string pipeName) => pipeName + ".Back";
+
+    /// <summary>The return pipe for this instance's <see cref="PipeName"/>.</summary>
+    public string BackPipe => BackPipeName(PipeName);
+
     public const string Usage =
         "TravelEar.Helper [--endpoint <substring>] [--tone] [--pipe <name>] [--detach] [--help]\n" +
         "  --endpoint <substring>  Render to the playback device whose name contains <substring> (empty = default device).\n" +

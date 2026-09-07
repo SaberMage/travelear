@@ -4,6 +4,7 @@ using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
+using TravelEar.Core;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -21,6 +22,7 @@ public sealed class Plugin : BasePlugin
 
     private Harmony _harmony;
     private SinkPump _pump;
+    private OffsetMonitor _offset;
     private LocalVoiceRenderer _renderer;
     private GameObject _driver;
 
@@ -62,10 +64,12 @@ public sealed class Plugin : BasePlugin
         // Sink side first: the pump only ever waits for a Helper, so it can never block the game.
         _pump = new SinkPump(TapFilter.Ring, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate, () => Settings.Downmix.Value);
         _pump.Start();
+        _offset = new OffsetMonitor(Logger, HelperOptions.Default.BackPipe);
+        _offset.Start();
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.ReadHeadMarginFrames.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -75,6 +79,7 @@ public sealed class Plugin : BasePlugin
 
     public override bool Unload()
     {
+        _offset?.Dispose();
         _pump?.Dispose();
         _harmony?.UnpatchSelf();
         _harmony = null;
@@ -92,6 +97,7 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> MixerStage { get; }
     public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<bool> Downmix { get; }
+    public ConfigEntry<float> ReadHeadMarginFrames { get; }
     public ConfigEntry<float> SelfEarForwardMeters { get; }
 
     public PluginConfig(ConfigFile file)
@@ -110,6 +116,9 @@ internal sealed class PluginConfig
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         Downmix = file.Bind("Sink", "Downmix", false,
             "Downmix Local Voice to mono before sending it to the Sink.");
+        // [impl->REQ-OFFSET-MEASURE]
+        ReadHeadMarginFrames = file.Bind("Fidelity", "ReadHeadMarginFrames", 1.5f,
+            "How far behind the provider's write head the Local Voice read head is placed at each talk burst, in 60 ms frames. Lower = less Offset but more read-head resyncs (see the 'Local Voice stats' log line); raise it if resyncs climb.");
         SelfEarForwardMeters = file.Bind("Ear", "SelfEarForwardMeters", 0.0762f,
             "How far in front of the listener the Local Voice emitter sits, in metres (0.0762 = 3 in). 0 puts it on the listener, which pans oddly.");
     }

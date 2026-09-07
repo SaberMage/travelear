@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using HarmonyLib;
 
@@ -21,10 +22,11 @@ internal static class OutboundVoiceTap
 {
     /// <summary>
     /// Raised on Dissonance's encoder thread for every encoded frame with a local sequence
-    /// number and a private copy of the Opus bytes. Handlers must be cheap and must not touch
-    /// Unity objects.
+    /// number, a private copy of the Opus bytes, and the <see cref="Stopwatch"/> timestamp taken
+    /// as the postfix entered (the Offset capture point, <c>REQ-OFFSET-MEASURE</c>). Handlers must
+    /// be cheap and must not touch Unity objects.
     /// </summary>
-    public static event Action<int, byte[]> FrameEncoded;
+    public static event Action<int, byte[], long> FrameEncoded;
 
     public static long Frames;
     public static int LastInputSamples;
@@ -41,6 +43,7 @@ internal static class OutboundVoiceTap
     {
         try
         {
+            var capturedAt = Stopwatch.GetTimestamp();
             var bytes = Copy(__result);
             LastInputSamples = samples.Count;
             var n = (int)Interlocked.Increment(ref Frames);
@@ -50,7 +53,7 @@ internal static class OutboundVoiceTap
             else if (n % SummaryEvery == 0)
                 Plugin.Logger.LogInfo($"Tap: {n} frames encoded; last {bytes.Length} bytes");
 
-            FrameEncoded?.Invoke(n, bytes);
+            FrameEncoded?.Invoke(n, bytes, capturedAt);
         }
         catch (Exception e)
         {

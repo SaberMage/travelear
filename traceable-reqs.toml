@@ -101,7 +101,7 @@ required_stages = ["doc", "impl", "unit"]  # M2 T3: Downmixer + tests, pump fold
 [[requirements]]
 id = "REQ-OFFSET-MEASURE"
 title = "Offset is measured end to end and reported as a rolling 10 s average in the log and, where supported, the pause-menu Audio section"
-required_stages = []
+required_stages = ["doc", "impl", "unit"]  # M2 T2: FrameStampTable / OffsetAverager / OffsetReportFrame + tests, return pipe, 10 s log line; the pause-menu row is M3
 
 # ───────────────────────────── Configuration ──────────────────────────────
 

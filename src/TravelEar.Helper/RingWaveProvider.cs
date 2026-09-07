@@ -22,6 +22,21 @@ internal sealed class RingWaveProvider : IWaveProvider
     public long Trims { get; private set; }
     public long TrimmedSamples { get; private set; }
 
+    /// <summary>Capture timestamps keyed by ring position: the pipe thread marks each frame it stores (<c>REQ-OFFSET-MEASURE</c>).</summary>
+    public FrameStampTable Stamps { get; } = new();
+
+    /// <summary>Seconds of audio the endpoint has played so far, from the output's audio clock; null = unknown (fall back to nominal latency).</summary>
+    public Func<double?>? PlayedSeconds { get; set; }
+
+    /// <summary>Nominal output latency used when <see cref="PlayedSeconds"/> is unavailable.</summary>
+    public double FallbackLatencySeconds { get; set; }
+
+    /// <summary>Raised on the render thread with one report per resolved frame; must not block.</summary>
+    public Action<OffsetReport>? Reported { get; set; }
+
+    public long Reports { get; private set; }
+    private long _bytesProvided;
+
     private readonly int _maxBacklogSamples;
     private readonly int _targetBacklogSamples;
 
@@ -48,8 +63,24 @@ internal sealed class RingWaveProvider : IWaveProvider
             Trims++;
         }
 
+        // [impl->REQ-OFFSET-MEASURE]
+        // The first sample of this read is at the ring's read position; if a capture stamp covers
+        // it, its render time is now plus whatever is still queued ahead of it in the endpoint.
+        var readPosition = Ring.ReadPosition;
+        if (Stamps.TryResolve(readPosition, 0, out var captured))
+        {
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var providedSeconds = (double)_bytesProvided / WaveFormat.AverageBytesPerSecond;
+            var played = PlayedSeconds?.Invoke();
+            var queuedSeconds = played is double p ? Math.Max(0, providedSeconds - p) : FallbackLatencySeconds;
+            var renderAt = now + (long)(queuedSeconds * System.Diagnostics.Stopwatch.Frequency);
+            Reports++;
+            Reported?.Invoke(new OffsetReport(captured, renderAt));
+        }
+
         var floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer.AsSpan(offset, sampleCount * sizeof(float)));
         Ring.Read(floats);
+        _bytesProvided += sampleCount * sizeof(float);
         return sampleCount * sizeof(float);
     }
 }

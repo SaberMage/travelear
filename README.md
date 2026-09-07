@@ -41,6 +41,9 @@ By default the Helper renders to your system default output, so you will hear Lo
 | `Sink.SinkEndpoint` | empty | Playback device the Helper renders to. Empty = system default. |
 | `Sink.Downmix` | `false` | Force mono output. |
 | `Fidelity.MixerStage` | `true` | Re-synthesize the game's mixer-stage effects. |
+| `Fidelity.TransmitGate` | `true` | Render Local Voice only while peers receive it; off renders the mic noise floor too. |
+| `Fidelity.ReadHeadMarginFrames` | `1.5` | Read-head margin at each talk burst, in 60 ms frames. Lower = less delay, more resyncs. |
+| `Ear.SelfEarForwardMeters` | `0.0762` | How far in front of your in-game ears the voice is placed (3 in). |
 
 The measured delay between your mic and the Sink is logged every few seconds and, where supported, shown in the pause menu's Audio section. Use it as the OBS sync offset if you need the track aligned with a raw mic track.
 

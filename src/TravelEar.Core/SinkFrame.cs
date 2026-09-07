@@ -6,7 +6,7 @@ namespace TravelEar.Core;
 /// <summary>Fixed header preceding every block of samples on the Sink pipe.</summary>
 /// <param name="Channels">Interleaved channel count (1 = mono, 2 = stereo).</param>
 /// <param name="SampleRate">Samples per second per channel (expected 48000).</param>
-/// <param name="CaptureTimestamp">Writer-side timestamp of the first sample, in the writer's clock units (Offset measurement pairs it with the Helper's render clock).</param>
+/// <param name="CaptureTimestamp">Capture timestamp of the first sample (the mod's <c>Stopwatch</c> ticks at <c>OpusEncoder.Encode</c>, resolved through the rings), or 0 when the first sample carries none (mod-generated silence). The Helper pairs it with its render clock for Offset.</param>
 /// <param name="SampleCount">Total float32 samples in the payload, across all channels.</param>
 public readonly record struct SinkFrameHeader(ushort Channels, uint SampleRate, long CaptureTimestamp, int SampleCount);
 

@@ -42,8 +42,8 @@ internal sealed class LocalVoiceRenderer
     /// <summary>A gap this long between pushed frames starts a new talk burst.</summary>
     private const int BurstGapMs = 250;
 
-    /// <summary>Read head distance behind the write head at a burst start, in Opus frames.</summary>
-    private const float ReadHeadMarginFrames = 1.5f;
+    /// <summary>Read head distance behind the write head at a burst start, in Opus frames (config <c>Fidelity.ReadHeadMarginFrames</c>).</summary>
+    private readonly float ReadHeadMarginFrames;
 
     /// <summary>Lag beyond this many frames while talking triggers a resync (drift / missed burst).</summary>
     private const float MaxLagFrames = 4f;
@@ -85,12 +85,13 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate, float readHeadMarginFrames)
     {
         _log = log;
         _pump = pump;
         _forwardMeters = forwardMeters;
         _gateEnabled = transmitGate;
+        ReadHeadMarginFrames = readHeadMarginFrames > 0 && !float.IsNaN(readHeadMarginFrames) ? readHeadMarginFrames : 1.5f;
         Instance = this;
     }
 
@@ -158,7 +159,8 @@ internal sealed class LocalVoiceRenderer
 
         var ring = provider.CachedVoiceData;
         _ringChannels = Math.Max(1, provider._channelCount);
-        _log.LogInfo($"Local Voice: renderer built; provider ring {ring?.Length ?? 0} samples x {_ringChannels} ch, controller {(_player.Controller is null ? "pending" : "live")}.");
+        TapFilter.SetReader(_player, ring?.Length ?? 0);
+        _log.LogInfo($"Local Voice: renderer built; provider ring {ring?.Length ?? 0} samples x {_ringChannels} ch, controller {(_player.Controller is null ? "pending" : "live")}; read head margin {ReadHeadMarginFrames} frames.");
         _built = true;
     }
 
@@ -280,7 +282,7 @@ internal sealed class LocalVoiceRenderer
     }
 
     /// <summary>Encoder thread: decode with the game's decoder and push into the provider ring.</summary>
-    private void OnFrameEncoded(int sequence, byte[] opus)
+    private void OnFrameEncoded(int sequence, byte[] opus, long capturedAt)
     {
         var first = Interlocked.Read(ref _framesDecoded) == 0;
         try
@@ -297,7 +299,9 @@ internal sealed class LocalVoiceRenderer
 
             // [impl->REQ-VOICE-CONTINUOUS]
             var decision = _gateEnabled ? _gate.Decide(_transmitting, now * 1000.0 / Stopwatch.Frequency) : GateDecision.Pass;
-            RoundTripProvider.Push(decision == GateDecision.Pass ? pcm : GateSilence(count));
+            // [impl->REQ-OFFSET-MEASURE]
+            if (decision == GateDecision.Pass) RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
+            else RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
             if (gapMs > BurstGapMs) ResyncReadHead(count, "burst start");
 
             if (first) _log.LogInfo($"Local Voice: frame 1 step C, pushed; provider write head {RoundTripProvider.Provider?.CachedVoiceWriteHead}.");
@@ -399,7 +403,7 @@ internal sealed class LocalVoiceRenderer
                 lag = ProviderLagSamples();
             }
             if (lag >= frame * ReadHeadMarginFrames) break;
-            RoundTripProvider.Push(_silence);
+            RoundTripProvider.Push(_silence, frameSamples, _ringChannels, FrameStampTable.NoStamp);
             _silenceFrames++;
         }
     }
