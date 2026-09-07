@@ -29,7 +29,9 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
    OBS Application Audio Capture on the Helper window; the meter moved. Recorded in ADR-0001.
 2. Does a Harmony postfix on `MirrorIgnoranceClient.SendUnreliable(ArraySegment<byte>)` fire
    under IL2CPP for the host's own packets, and does the Dissonance VoiceData frame parse as
-   documented? (S2.)
+   documented? (S2.) **Answered 2026-09-07:** postfixes fire and the parse is byte-exact, but a
+   solo host sends no VoiceData and generic-class postfixes never fire; the tap now sits on
+   `OpusEncoder.Encode`. Details in the status log.
 3. Can mod code obtain a game `IVoiceDataProvider` it controls without implementing an IL2CPP
    interface from managed code? (S3.) Preferred answer: instantiate the game's own
    `LocalVoiceProvider`, unsubscribe it from the mic, and push decoded PCM through its public
@@ -126,9 +128,11 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
      Also seen: `RadioBroadcastTriggers` (Open, rooms RingRoom1-4, MegaphoneA-C,
      MegaphoneSecretZone, Interviewer, InterviewSubject, CenturionSeance, RadioA, TrainIntercom;
      only open with the token), `VoiceColliderTrigger` (VoiceActivation, type Self).
-  5. Next: non-generic `OpusEncoder.Encode(samples, buffer)` postfix (`__result` = exact encoded
-     frame = Outbound Voice per CONTEXT.md) + `EncoderPipeline.EncodeFrames` canary. Deployed,
-     awaiting the run.
+  5. Non-generic `OpusEncoder.Encode(samples, buffer)` postfix: **fires** (2880 samples in,
+     75-138 bytes out per frame, hundreds of frames while speaking) while the generic
+     `SendVoiceData` postfix stayed silent in the same run. **Open question 2 answered; T2 done.**
+     Tap point moved to the encoder output (DESIGN.md updated); spike classes removed; the
+     `DissonanceFrame` parser stays in Core as tested reference code.
 
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 

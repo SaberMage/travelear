@@ -39,9 +39,9 @@ mic ─► Dissonance preprocess ─► Opus encode ─► Mirror send ───
 <!-- [doc->REQ-VOICE-OUTBOUND-TAP] -->
 ### Outbound Voice tap (`TravelEar` plugin)
 
-Harmony postfix on the Dissonance Mirror client's unreliable send. Parses the Dissonance VoiceData frame (documented wire format: magic `0x8BC7`, type, session, sender id, flags, sequence, channel list, Opus payload) and hands the Opus payload plus sequence number to the decoder. Because it sees the real packets, push-to-talk, voice activation, and FEC state are reproduced by construction.
+Harmony postfix on Dissonance's `OpusEncoder.Encode(samples, buffer)`. Its return value is the exact encoded frame the game goes on to send (mic audio after the game's capture preprocessing, then Opus), so it is Outbound Voice by definition, and it fires whenever the local player transmits whether or not any peer is listening. Push-to-talk, voice activation, and FEC state are reproduced by construction because the encoder only runs while the game transmits. The tap copies the bytes and hands them, with a local sequence number, to the decoder.
 
-Fallback if the frame parse proves fragile: subscribe to Dissonance's recorded-audio feed and run the mod's own `OpusEncoder` / `OpusDecoder` pair with the game's `VoiceSettings`.
+Settled by M1 spike S2 (five in-game runs): a host with no listeners never builds a VoiceData packet, so a postfix on the Mirror client's send sees nothing solo; a postfix on the generic `BaseClient<...>.SendVoiceData` installs but never fires under IL2CPP generic sharing; `OpusEncoder.Encode` is non-generic and upstream of both. Rule of thumb for every later hook: prefer non-generic methods. The documented VoiceData wire format (magic `0x8BC7`, type, session, sender, flags, sequence, channel list, Opus payload; all big-endian) was confirmed byte-exact against live packets and stays implemented and unit-tested in `TravelEar.Core.DissonanceFrame` as reference code.
 
 <!-- [doc->REQ-VOICE-ROUNDTRIP] -->
 ### Round-trip provider
@@ -87,8 +87,8 @@ BepInEx config entries (auto-surfaced as toggles by ModSettingsMenu if present).
 
 ## First spikes
 
-1. OBS process-loopback capture of a stream rendered to a non-default endpoint.
-2. Harmony postfix on the Dissonance Mirror client send under IL2CPP; confirm frame parse.
+1. OBS process-loopback capture of a stream rendered to a non-default endpoint. **Answered yes** (M1, 2026-09-07).
+2. Harmony postfix on the Dissonance send path under IL2CPP; confirm frame parse. **Answered** (M1, 2026-09-07): postfixes fire; the frame parse is byte-exact; the tap moved upstream to `OpusEncoder.Encode` (see the tap section).
 3. Instantiate a game `VoicePlayer` from mod code with a mod-provided `IVoiceDataProvider`.
 
 ## Test setup
