@@ -223,7 +223,7 @@ internal sealed class SinkRenderer : IDisposable
                 if ((now - lastLog).TotalSeconds >= 10 && provider is not null)
                 {
                     lastLog = now;
-                    HelperLog.Write($"Stream: frames {frames}, buffered {provider.Ring.Count} smp, underruns {provider.Ring.Underruns}, dropped {provider.Ring.DroppedSamples} smp, trims {provider.Trims} ({provider.TrimmedSamples} smp), offset reports {provider.Reports}");
+                    HelperLog.Write($"Stream: frames {frames}, buffered {provider.Ring.Count} smp, underruns {provider.Ring.Underruns}, starves {provider.Starve.Starves}{(provider.Starve.Holding ? " (holding)" : "")}, dropped {provider.Ring.DroppedSamples} smp, trims {provider.Trims} ({provider.TrimmedSamples} smp), offset reports {provider.Reports}");
                 }
                 if ((now - lastStatus).TotalMilliseconds >= StatusIntervalMs && provider is not null)
                 {
@@ -231,7 +231,7 @@ internal sealed class SinkRenderer : IDisposable
                     _report($"Endpoint : {device.FriendlyName}\nPipe     : {_options.PipeName}\n" +
                             $"Stream   : {provider.SampleRate} Hz {provider.Channels} ch\n" +
                             $"Frames   : {frames}   buffered {provider.Ring.Count} samples\n" +
-                            $"Underruns: {provider.Ring.Underruns}   dropped {provider.Ring.DroppedSamples}\n" +
+                            $"Underruns: {provider.Ring.Underruns}   starves {provider.Starve.Starves}   dropped {provider.Ring.DroppedSamples}\n" +
                             $"Trims    : {provider.Trims} ({provider.TrimmedSamples} samples; cap {RingWaveProvider.MaxBacklogMs} ms)\n" +
                             $"Offset   : {provider.Reports} reports{(_backPipe?.IsConnected == true ? "" : " (return pipe not connected)")}");
                 }

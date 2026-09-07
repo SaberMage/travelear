@@ -54,7 +54,13 @@ post-processing, mixer effects.)
 
 **Tap** — the point in the game's voice pipeline where **Local Voice** is captured for the
 **Sink** instead of being mixed into game audio. The Tap always zeroes what it copies, so the
-game never plays it. (Avoid: hook, intercept.)
+game never plays it. Since [ADR-0005](docs/adr/0005-sink-fed-from-the-encoder-thread.md) the
+default feed point is the encoder thread, where nothing enters game audio at all; the Tap is the
+`VoicePlayer` feed point's capture. (Avoid: hook, intercept.)
+
+**Feed point** — where the **Sink** takes **Local Voice** from: the encoder thread (default,
+mod DSP only) or the **Tap** behind an in-game `VoicePlayer` (config `Fidelity.SinkFeed`).
+(Avoid: source, input path.)
 
 ### Output
 

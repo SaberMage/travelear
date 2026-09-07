@@ -31,6 +31,9 @@ internal sealed class RingWaveProvider : IWaveProvider
     public long Trims { get; private set; }
     public long TrimmedSamples { get; private set; }
 
+    /// <summary>Re-prime rule after the ring runs dry (<see cref="StarveGuard"/>); its count is logged beside underruns.</summary>
+    public StarveGuard Starve { get; }
+
     /// <summary>Capture timestamps keyed by ring position: the pipe thread marks each frame it stores (<c>REQ-OFFSET-MEASURE</c>).</summary>
     public FrameStampTable Stamps { get; } = new();
 
@@ -57,6 +60,7 @@ internal sealed class RingWaveProvider : IWaveProvider
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
         _maxBacklogSamples = sampleRate * channels * MaxBacklogMs / 1000;
         _targetBacklogSamples = sampleRate * channels * TargetBacklogMs / 1000;
+        Starve = new StarveGuard(_targetBacklogSamples);
     }
 
     /// <summary>Queues <see cref="TargetBacklogMs"/> of silence ahead of the first frame; the pipe thread calls it once before playback starts.</summary>
@@ -70,6 +74,15 @@ internal sealed class RingWaveProvider : IWaveProvider
         var sampleCount = count / sizeof(float);
 
         var backlog = Ring.Count;
+        // [impl->REQ-SINK-FORMAT]
+        // After a starve (the game stopped encoding: mute, menu) hold on silence until the backlog
+        // is back at the target, so the next burst starts with its jitter budget (ADR-0005).
+        if (Starve.ShouldHold(backlog, sampleCount))
+        {
+            Array.Clear(buffer, offset, sampleCount * sizeof(float));
+            _bytesProvided += sampleCount * sizeof(float);
+            return sampleCount * sizeof(float);
+        }
         if (backlog > _maxBacklogSamples)
         {
             var excess = backlog - _targetBacklogSamples;

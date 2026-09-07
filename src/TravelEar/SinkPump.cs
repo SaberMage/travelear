@@ -21,6 +21,7 @@ internal sealed class SinkPump : IDisposable
     private const int MaxFramesPerSend = 4800;  // 100 ms at 48 kHz
 
     private readonly VoiceRingBuffer _ring;
+    private readonly FrameStampTable _stamps;
     private readonly Func<int> _channels;
     private readonly Func<int> _sampleRate;
     private readonly Func<bool> _downmix;
@@ -33,9 +34,12 @@ internal sealed class SinkPump : IDisposable
     public volatile bool Connected;
     public volatile string LastError;
 
-    public SinkPump(VoiceRingBuffer ring, Func<int> channels, Func<int> sampleRate, Func<bool> downmix = null)
+    /// <param name="ring">The feed point's ring: <see cref="TapFilter.Ring"/> or <see cref="SinkFeed.Ring"/> (ADR-0005).</param>
+    /// <param name="stamps">The capture stamps keyed by that ring's positions.</param>
+    public SinkPump(VoiceRingBuffer ring, FrameStampTable stamps, Func<int> channels, Func<int> sampleRate, Func<bool> downmix = null)
     {
         _ring = ring;
+        _stamps = stamps;
         _channels = channels;
         _sampleRate = sampleRate;
         _downmix = downmix ?? (() => false);
@@ -94,7 +98,7 @@ internal sealed class SinkPump : IDisposable
                     // [impl->REQ-OFFSET-MEASURE]
                     var readPosition = _ring.ReadPosition;
                     _ring.Read(samples);
-                    if (!TapFilter.SinkStamps.TryResolve(readPosition, 0, out var captured)) captured = FrameStampTable.NoStamp;
+                    if (!_stamps.TryResolve(readPosition, 0, out var captured)) captured = FrameStampTable.NoStamp;
 
                     // [impl->REQ-SINK-FORMAT]
                     if (channels > 1 && _downmix())

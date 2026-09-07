@@ -62,14 +62,19 @@ public sealed class Plugin : BasePlugin
         }
 
         // Sink side first: the pump only ever waits for a Helper, so it can never block the game.
-        _pump = new SinkPump(TapFilter.Ring, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate, () => Settings.Downmix.Value);
+        // The feed point (ADR-0005) picks the ring: the encoder thread's (mono, decoder rate) or the Tap's.
+        var feed = Settings.SinkFeed.Value;
+        _pump = feed == SinkFeedPoint.Encoder
+            ? new SinkPump(SinkFeed.Ring, SinkFeed.Stamps, () => SinkFeed.Channels, () => LocalVoiceDecoder.SampleRate, () => Settings.Downmix.Value)
+            : new SinkPump(TapFilter.Ring, TapFilter.SinkStamps, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate, () => Settings.Downmix.Value);
         _pump.Start();
+        Logger.LogInfo($"Sink feed point: {feed}.");
         _offset = new OffsetMonitor(Logger, HelperOptions.Default.BackPipe);
         _offset.Start();
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -87,9 +92,19 @@ public sealed class Plugin : BasePlugin
     }
 }
 
+/// <summary>Where the Sink is fed from (ADR-0005).</summary>
+public enum SinkFeedPoint
+{
+    /// <summary>The encoder thread: decoded Outbound Voice, remote-path processing, then straight to the Sink. Default.</summary>
+    Encoder,
+    /// <summary>The Tap on Unity's audio thread behind a game <c>VoicePlayer</c> (ADR-0003; M1-M2 path, kept for A/B).</summary>
+    VoicePlayer,
+}
+
 /// <summary>User-facing settings. Every entry is surfaced automatically by ModSettingsMenu if installed.</summary>
 internal sealed class PluginConfig
 {
+    public ConfigEntry<SinkFeedPoint> SinkFeed { get; }
     public ConfigEntry<bool> Enabled { get; }
     public ConfigEntry<bool> SpawnHelper { get; }
     public ConfigEntry<string> HelperPath { get; }
@@ -112,6 +127,8 @@ internal sealed class PluginConfig
             @"Full path to TravelEar.Helper.exe. Empty = BepInEx\TravelEar.Helper\TravelEar.Helper.exe.");
         SinkEndpoint = file.Bind("Sink", "SinkEndpoint", "",
             "Substring of the Windows playback device the Helper renders to. Empty = system default device.");
+        SinkFeed = file.Bind("Fidelity", "SinkFeed", SinkFeedPoint.Encoder,
+            "Where Local Voice is taken from. Encoder = the decoded outbound voice on the game's mic thread, processed by the mod and sent straight to the Sink (lowest offset, immune to the game's audio-thread stalls). VoicePlayer = the M1-M2 path through an in-game VoicePlayer and the Tap on Unity's audio thread (for A/B only).");
         MixerStage = file.Bind("Fidelity", "MixerStage", true,
             "Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character).");
         TransmitGate = file.Bind("Fidelity", "TransmitGate", true,

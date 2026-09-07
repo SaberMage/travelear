@@ -14,10 +14,13 @@ shaped by distance and facing angle, occlusion filtering when a wall sits betwee
 megaphone's own colouring when you hold one.
 
 TravelEar copies the exact packets the game sends, decodes them with the game's own decoder,
-and plays them through the same playback components the game uses for other players. It
-configures those components as if the listener stood at your own position: zero distance,
-facing you, nothing in the way. The output is captured right after this chain and removed from
-the game's mix, so you never hear it through the game itself.
+and runs them through the same processing the game applies for other players, ported step for
+step from the game's code and checked against it: the compressor, soft clipper and makeup gain,
+and the voice EQ. It is configured as if the listener stood at your own position: zero distance,
+facing you, nothing in the way. All of this happens on the game's microphone thread, the same
+thread that encodes your voice for other players, and the result goes straight to the Helper.
+Nothing is played inside the game, so you never hear it through the game itself, and the game's
+own audio hiccups cannot reach the recording any more than they reach other players.
 
 ## The mixer stage: re-synthesized
 

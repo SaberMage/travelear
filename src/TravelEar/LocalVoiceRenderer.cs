@@ -8,8 +8,16 @@ using Object = UnityEngine.Object;
 namespace TravelEar;
 
 /// <summary>
-/// The Local Voice renderer (docs/DESIGN.md): a mod-owned GameObject carrying the round-trip
-/// provider and a game <c>VoicePlayer</c> (<c>PlayerType = Clean</c>) fed by it. The VoicePlayer
+/// The Local Voice renderer (docs/DESIGN.md). With the default feed point (ADR-0005, config
+/// <c>Fidelity.SinkFeed = Encoder</c>) it is the encoder-thread pipeline alone: decode the tapped
+/// frame with the game's decoder, gate and fade it on the "peers receive" signal, run the remote
+/// path's dynamics and the (optional) voice EQ port, and write the frame into <see cref="SinkFeed"/>;
+/// no game object, no provider ring, no Tap, so neither the ring lag nor the game's audio-thread
+/// stalls reach the Sink. The main thread only samples the transmit signal and drives the
+/// makeup-gain loop.
+/// <para>
+/// With <c>SinkFeed = VoicePlayer</c> (the M1-M2 path, kept for A/B) it is instead a mod-owned
+/// GameObject carrying the round-trip provider and a game <c>VoicePlayer</c> (<c>PlayerType = Clean</c>) fed by it. The VoicePlayer
 /// does the rest itself, exactly as it does for the game's own voices: on enable it plays its
 /// <c>Cue</c> through <c>AudioPlayHelper.Play</c> with a streaming clip of constant 1.0, puts
 /// itself at index 0 of the source's filter list, and switches the source's
@@ -23,6 +31,7 @@ namespace TravelEar;
 /// (<see cref="VoiceDynamics"/> on the encoder thread, <see cref="Core.VoiceMakeupGain"/> once per
 /// frame; docs/reference/big-walk-voice-dsp.md), with the game's 400 Hz voice EQ attached to the
 /// pooled source when config <c>SelfEarEqDryWet</c> asks for any of its wet path.
+/// </para>
 /// <para>
 /// Cue: the last entry of <c>GlobalAudioEffects.Instance.VoiceCues</c>, the same cue kind the
 /// game hands remote players (spatial settings, attenuation and RTPCs identical). Its mixer
@@ -54,6 +63,8 @@ internal sealed class LocalVoiceRenderer
 
     private readonly ManualLogSource _log;
     private readonly SinkPump _pump;
+    private readonly SinkFeedPoint _feed;
+    private PeakingEq _eqCore; // encoder thread only (Encoder feed)
     private readonly float _forwardMeters;
     private readonly bool _gateEnabled;
     private readonly TransmitGate _gate = new();
@@ -107,10 +118,11 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet)
     {
         _log = log;
         _pump = pump;
+        _feed = feed;
         _forwardMeters = forwardMeters;
         _gateEnabled = transmitGate;
         _fadeOutOverrideMs = transmitFadeOutMs > 0 && !float.IsNaN(transmitFadeOutMs) ? transmitFadeOutMs : 0f;
@@ -124,23 +136,50 @@ internal sealed class LocalVoiceRenderer
     {
         if (!_built)
         {
-            if (GlobalAudioEffects.Instance is null || AudioManager.Instance is null) return;
-            Build();
+            if (_feed == SinkFeedPoint.Encoder) BuildEncoderFeed();
+            else
+            {
+                if (GlobalAudioEffects.Instance is null || AudioManager.Instance is null) return;
+                Build();
+            }
             if (!_built) return;
         }
 
-        RefreshTapTarget();
-        PinEmitter();
+        if (_feed == SinkFeedPoint.VoicePlayer)
+        {
+            RefreshTapTarget();
+            PinEmitter();
+        }
         SampleTransmitSignal();
         UpdateMakeupGain();
-        GuardLag();
-        KeepRingFresh();
+        if (_feed == SinkFeedPoint.VoicePlayer)
+        {
+            GuardLag();
+            KeepRingFresh();
+        }
 
         if (Time.unscaledTime >= _nextStats)
         {
             _nextStats = Time.unscaledTime + StatsIntervalSeconds;
             LogStats();
         }
+    }
+
+    // [impl->REQ-VOICE-ROUNDTRIP]
+    // [impl->REQ-HAZARD-NO-GAME-AUDIO-LEAK]
+    /// <summary>
+    /// Encoder feed (ADR-0005): the decoder and the Sink ring are all there is. Nothing is added to
+    /// the scene, so Local Voice cannot enter the game's audio. The voice EQ, when its wet mix is
+    /// above 0, is the Core port of the game's filter instead of an attached component.
+    /// </summary>
+    private void BuildEncoderFeed()
+    {
+        SampleRate = LocalVoiceDecoder.SampleRate;
+        _decoder = new LocalVoiceDecoder();
+        _eqCore = _eqDryWet > 0f ? PeakingEq.GameVoiceEq(_eqDryWet, LocalVoiceDecoder.SampleRate) : null;
+        OutboundVoiceTap.FrameEncoded += OnFrameEncoded;
+        _log.LogInfo($"Local Voice: encoder feed built; {LocalVoiceDecoder.SampleRate} Hz mono straight to the Sink ring ({SinkFeed.Ring.Capacity} samples); voice EQ {(_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core port)")}.");
+        _built = true;
     }
 
     // [impl->REQ-VOICE-ROUNDTRIP]
@@ -329,17 +368,29 @@ internal sealed class LocalVoiceRenderer
             if (decision == GateDecision.Pass)
             {
                 // [impl->REQ-RENDER-CLEAN]
-                if (gapMs > BurstGapMs) _dynamics.Reset(_makeupGain); // the game's session-change reset
+                if (gapMs > BurstGapMs)
+                {
+                    _dynamics.Reset(_makeupGain); // the game's session-change reset
+                    _eqCore?.Reset();
+                }
                 ProcessRemotePath(count);
-                RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
+                if (_feed == SinkFeedPoint.Encoder)
+                {
+                    // ADR-0005: the processed frame is the Sink's input; no provider, no Tap.
+                    var frame = _scratch.AsSpan(0, Math.Min(count, _scratch.Length));
+                    _eqCore?.Process(frame);
+                    SinkFeed.Write(frame, capturedAt);
+                }
+                else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
                 _lastPushWasVoice = true;
             }
             else
             {
-                RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
+                if (_feed == SinkFeedPoint.Encoder) SinkFeed.WriteSilence(count);
+                else RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
                 _lastPushWasVoice = false;
             }
-            if (gapMs > BurstGapMs) ResyncReadHead(count, "burst start");
+            if (_feed == SinkFeedPoint.VoicePlayer && gapMs > BurstGapMs) ResyncReadHead(count, "burst start");
 
             if (first) _log.LogInfo($"Local Voice: frame 1 step C, pushed; provider write head {RoundTripProvider.Provider?.CachedVoiceWriteHead}.");
             Interlocked.Increment(ref _framesDecoded);
@@ -596,19 +647,32 @@ internal sealed class LocalVoiceRenderer
 
     private void LogStats()
     {
-        var provider = RoundTripProvider.Provider;
-        var lag = ProviderLagSamples();
-        var lagMs = SampleRate > 0 && _ringChannels > 0 ? lag * 1000.0 / (SampleRate * _ringChannels) : 0;
+        string path;
+        if (_feed == SinkFeedPoint.Encoder)
+        {
+            path = $"encoder feed: blocks {Interlocked.Read(ref SinkFeed.Blocks)} voice + {Interlocked.Read(ref SinkFeed.SilenceBlocks)} silence (peak {SinkFeed.LastPeak:F3}), " +
+                   $"ring {SinkFeed.Ring.Count} smp, dropped {SinkFeed.Ring.DroppedSamples}, underruns {SinkFeed.Ring.Underruns}";
+        }
+        else
+        {
+            var provider = RoundTripProvider.Provider;
+            var lag = ProviderLagSamples();
+            var lagMs = SampleRate > 0 && _ringChannels > 0 ? lag * 1000.0 / (SampleRate * _ringChannels) : 0;
+            path = $"pushed {Interlocked.Read(ref RoundTripProvider.FramesPushed)}; " +
+                   $"provider write head {provider?.CachedVoiceWriteHead ?? -1}, lag {lag} smp ({lagMs:F0} ms), resyncs {Interlocked.Read(ref _resyncs)}, silence frames {_silenceFrames}; " +
+                   $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
+                   $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}";
+        }
+        var eq = _feed == SinkFeedPoint.Encoder
+            ? (_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core)")
+            : (_eq is null ? "off" : $"wet {_eqDryWet:F2}");
         _log.LogInfo(
-            $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), " +
-            $"pushed {Interlocked.Read(ref RoundTripProvider.FramesPushed)}, errors {Interlocked.Read(ref _decodeErrors)}; " +
-            $"provider write head {provider?.CachedVoiceWriteHead ?? -1}, lag {lag} smp ({lagMs:F0} ms), resyncs {Interlocked.Read(ref _resyncs)}, silence frames {_silenceFrames}; " +
-            $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
-            $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
+            $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), errors {Interlocked.Read(ref _decodeErrors)}; " +
+            $"{path}; " +
             $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}; " +
             $"gate {(_gateEnabled ? "on" : "off")}: transmitting {_transmitting}, passed {_gate.FramesPassed}, silenced {_gate.FramesSilenced}, signal changes {_signalChanges}, fade {_fader.FadeInMs:F0}/{_fader.FadeOutMs:F0} ms, hold {_gate.ReleaseHoldMs:F0} ms; " +
-            $"remote path: makeup {_makeupGain:F2} ({_makeup.GainDb:F1} dB, level {_makeup.Level:F3}), arv {_lastArv:F3}, reduction {_dynamics.Reduction:F2}, pre-clip peak {_dynamics.PreClipPeak:F2}, threshold {_threshold:F3}, eq {(_eq is null ? "off" : $"wet {_eqDryWet:F2}")}.");
-        LogGameAudioState();
+            $"remote path: makeup {_makeupGain:F2} ({_makeup.GainDb:F1} dB, level {_makeup.Level:F3}), arv {_lastArv:F3}, reduction {_dynamics.Reduction:F2}, pre-clip peak {_dynamics.PreClipPeak:F2}, threshold {_threshold:F3}, eq {eq}.");
+        if (_feed == SinkFeedPoint.VoicePlayer) LogGameAudioState();
     }
 
     /// <summary>Diagnostics for "no game audio" reports: global listener/mixer state and our own source.</summary>

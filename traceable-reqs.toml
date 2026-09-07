@@ -74,7 +74,7 @@ required_stages = []
 [[requirements]]
 id = "REQ-TAP-DIVERT"
 title = "The Tap copies the processed buffer and zeroes it so Local Voice never enters the game's mix"
-required_stages = ["doc", "impl", "unit"]  # M1 T3: TapDivert + tests; the in-game postfix
+required_stages = ["doc", "impl", "unit"]  # M1 T3: TapDivert + tests; the in-game postfix. M3 T0 (ADR-0005): VoicePlayer feed point only; the default Encoder feed has no in-game source to divert
 
 # ───────────────────────────── Sink & Helper ──────────────────────────────
 

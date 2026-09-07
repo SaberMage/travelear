@@ -138,8 +138,79 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
 
 ## Status log
 
-(empty; entries are added as tasks start and land, newest first is not required, keep them in
-task order)
+- **T0 built** (2026-09-07): the bodies read below answered questions 1-3; question 1 moved the
+  feed point (ADR-0005). Config `Fidelity.SinkFeed` (`Encoder` default, `VoicePlayer` = the
+  ADR-0003 path, unchanged, for A/B). Encoder feed: the renderer creates nothing in the scene;
+  each decoded frame goes gate -> fade -> `VoiceDynamics` -> Core `PeakingEq` (the game's
+  `BiquadFilters` PeakingEQ kernel, wet mix from `SelfEarEqDryWet`, 6 tests) -> `SinkFeed` ring
+  (mono 48 kHz, stamped with the encode time so Offset still resolves) -> pump. Helper: after its
+  ring runs dry it holds on silence until the backlog is back at 100 ms (`StarveGuard`, 5 tests;
+  `starves` counter in Helper.log and the status window), because the encoder stops with the mic
+  and a burst from an empty ring would click on every jitter. Pump takes its stamp table from the
+  feed point. Docs: ADR-0005, DESIGN (Pipeline, provider, renderer, Tap, Sink), CONTEXT (Tap,
+  Feed point), KNOWN-HAZARDS 1.1, docs-site settings + how-it-works, `REQ-TAP-DIVERT` re-scoped
+  to the `VoicePlayer` feed. 142 tests. Deployed. Operator check owed (one solo run on the
+  default feed): Local Voice audible in the Sink with no in-game double; `Offset:` well under the
+  M2 baseline of 320-360 ms (expected ~150-200 ms: Helper prime + pipe + encode hop, no ring
+  lag); the ~80 s crackle absent from the Sink; `Local Voice stats` shows `encoder feed:` blocks
+  climbing with `dropped 0`; Helper.log `starves` only around mutes / menus. Then, if time allows,
+  a second run with `SinkFeed = VoicePlayer` to confirm the fallback still works.
+
+### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
+
+The decomp trees from 2026-09-06 were current (GameAssembly.dll 2026-08-28), so no regeneration;
+`GlobalAudioEffects`, `AudioSourceController`, `AudioDynamicReverb`, `AudioPool`,
+`AudioPlayHelper` and `BiquadFilters` were resolved in addition to the already-resolved
+`SelfEcho`, `LocalVoicePlayer`, `VoicePlayer`, `PlayerVoicePlaybackControl`, `PlayerLips`,
+`RadioVoiceAssigner`.
+
+**Question 1 (feed point): moved.** A `Clean` `VoicePlayer` in synthesizer mode adds, between
+the provider ring read and the source output, only `ring[readHead++]` and
+`AudioFilterMixer`'s `clamp(envelope x data, -1, 1)`, where the envelope is the source's gain
+chain (Unity spatial gain at the Self-Ear's 3 in, cue volumes), near unity. No type-specific
+filter for `Clean`, no mixer floats written (those belong to `PlayerVoicePlaybackControl`,
+already ported in M2), no `SamplePlaybackComponent` DSP. `SelfVoice` mode is an Allpass biquad
+with `_vol = 0`: silent by construction, so it was never a candidate. The one game filter the mod
+attached itself, the 400 Hz PeakingEQ, is a documented RBJ kernel and is now Core `PeakingEq`.
+Nothing material remained, so ADR-0005 moves the feed to the encoder thread and keeps the
+ADR-0003 path as `Fidelity.SinkFeed = VoicePlayer` for A/B until a release ships on the default.
+Hazard 1.1 holds by construction on the default path.
+
+**Question 2 (`LocalVoicePlayer` / `SelfEcho`): not a better host; constants recorded.**
+`SelfEcho` owns three `LocalVoicePlayer` emitters (centre, +-60 deg at 1 m), an `AudioMixer`,
+the `AudioDynamicReverb` and six heading-sector echo buckets. Its input is the raw Unity
+microphone clip (`DissonanceComms.Clip`), not `LocalVoiceProvider`; it is enabled through
+`PlayerLips.SetOutdoorEcho(true)` -> `DissonanceComms.AddToken("echo")`. Per `LateUpdate` it
+writes `CenterDelay/LeftDelay/RightDelay = 700 + 800 * far/(mid+far)` ms,
+`Center/Left/RightDecay = 0.4 + 0.2 * mid`, `MasterVol = lerp(clamp01(height/100) * -6 dB, 3/s)`,
+and each emitter's `ScriptableVolume = lerp(outdoorness * (1-near) * (mid+far), 2/s)`, with
+near/mid/far the smoothed fractions of reverb rays landing under 50 m / under 200 m / beyond.
+`LocalVoicePlayer` plays that mic clip on a pooled `AudioSourceController` with the playhead
+pinned 512 samples behind `Microphone.GetPosition`; it hosts no Dissonance DSP and needs an
+`AudioClip`, so it cannot host mod PCM. v1.1's cliff echo is a Core re-synthesis from these
+constants (M4 seed).
+
+**Question 3 (Megaphone state): answered, recipe recorded.** There is no `Megaphone*` room-name
+literal in code; the room name is prefab data on `RadioVoiceAssigner.roomName` (default
+`"RadioA"`). The megaphone is a `Prop` whose `radioVoiceAssigner` owns a prefab `VoicePlayer`
+with `PlayerType == Megaphone`. Pressing it (`Peck`, networked) sets
+`latestBroadcastPlayer`, calls `PlayerLips.SetTalkingIntoRadio(true, roomName)` ->
+`DissonanceComms.AddToken(roomName)` on the local player, sets `isBroadcasting` and fires the
+static `RadioVoiceAssigner.onChange`; release removes the token and clears `isBroadcasting` once
+`GetIsSpeakingInto(roomName)` drops. The remote side hard-switches (`SampleProvider` swap, no
+fade). Detection for T2, main thread:
+`WorldManager.localPlayerCharacter.hands.heldProp.radioVoiceAssigner` with
+`voicePlayer.PlayerType == Megaphone` (read before `StartReceiving` may flip it to `SelfVoice`;
+`_cachedVoiceType` is the stable copy); talking = `isBroadcasting && latestBroadcastPlayer ==
+me`, cross-checked by the comms holding the `roomName` token; edges from `onChange`. The remote
+render applies, in process, a `BitCrusher` (24 bit, 4800 Hz, dry/wet 0.6, smooth 0.6, mono) and
+a `BiquadFilters` HighPass 300 Hz Q 0.4, then 13 mixer floats on the cue's mixer (`ReverbDry`,
+`ReverbWet`, `ReverbDensity`, `ReverbDecayTime`, `ReverbLF`, `ReverbDecayHFRatio`,
+`HPFrequency`, `LPFrequency`, `CompressorGain`, `CompressorThreshold`,
+`PostCompressorThreshold`, `PostCompressorRelease`, `PostCompressorGain`) and
+`Megaphone{n}Wet/Dry` on its parent, all from `VoicePlayer.Update` with the formulas in the
+report's section 3. T2 therefore ports the BitCrusher and high-pass to Core and takes the
+megaphone mixer set into the Mixer Stage.
 
 ## Gate
 

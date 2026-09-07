@@ -31,9 +31,12 @@ Each entry is one numbered subsection with these fields:
   themselves with a delay and OBS's game track contains their voice twice.
 - **Invariant:** after the Tap runs, every sample the renderer hands back to Unity is zero, for
   every channel count and buffer size the game uses.
-- **Mapping / notes:** the Tap is the last `IAudioFilter` on the renderer's AudioSource. Unit
-  test drives the filter with a non-zero buffer and asserts the buffer is all zeros afterwards
-  and the ring buffer holds the original samples.
+- **Mapping / notes:** on the default feed point (ADR-0005, `Fidelity.SinkFeed = Encoder`) the
+  renderer creates no in-game source at all, so the invariant holds by construction; the
+  encoder-thread build path is tagged for it. On the `VoicePlayer` feed point the Tap is the last
+  `IAudioFilter` on the renderer's AudioSource. Unit test drives the filter with a non-zero
+  buffer and asserts the buffer is all zeros afterwards and the ring buffer holds the original
+  samples.
 - **cite:** design decision, `docs/DESIGN.md` (Local Voice renderer). `REQ-HAZARD-NO-GAME-AUDIO-LEAK`.
 
 ## 2. Gameplay independence
