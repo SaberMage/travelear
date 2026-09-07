@@ -22,3 +22,7 @@ version becomes that GitHub Release's body verbatim.
 - M2 T2: Offset measurement. The delay from your mic (as the game encodes it) to the Helper's
   output is measured end to end and logged every 10 s as a rolling average, ready to use as the
   OBS sync offset. `Fidelity.ReadHeadMarginFrames` tunes the largest part of that delay.
+- M2 T1: remote-path processing. Local Voice now gets the same compressor, soft clip and
+  automatic makeup gain the game applies to every other player's voice, so its level and
+  peaks match what peers hear, and the in-game voice volume slider affects it the same way.
+  `Fidelity.SelfEarEqDryWet` mixes in the game's 400 Hz voice EQ for experimentation.

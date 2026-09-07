@@ -205,6 +205,17 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   (2 x 2880 floats per frame) rather than aliasing the IL2CPP array. Question 3 stays a knob.
   Operator check owed: Local Voice level matches what a peer hears; `remote path:` shows makeup
   moving with speech and settling; no "EQ attach failed" warning when the knob is raised.
+  Committed `6fd9ebb` (two meter assertions relaxed to four places: a float32 sum over a
+  2880-sample block drifts in the sixth).
+- **T5 close-out, docs half** (2026-09-07): ADR-0004 records the T1 decision (port the dynamics
+  and makeup gain to Core, reuse only `BiquadFilters`, read the game's statics never write them)
+  and adds a clause to ADR-0003's rule of thumb. CHANGELOG has the T1 entry; the docs-site
+  settings page lists every config key and says only `Sink.Downmix` applies live (all the
+  renderer inputs are constructor arguments). **T4 (Mixer Stage re-synthesis) deferred to M3:**
+  every M2 task still owes an operator run, and a reverb built blind on top of unverified
+  dynamics would only add to what one run has to disentangle. M2 closes once the operator's
+  run clears the four owed checks (T0 noise floor, T1 level, T2 `Offset:` lines, T3 Helper
+  outside the game's tree); any failure becomes a fix task here before M3-PLAN is written.
 
 ### T1 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-voice-dsp.md`)
 
