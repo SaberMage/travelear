@@ -35,6 +35,11 @@ internal static class OutboundVoiceTap
         {
             var bytes = Copy(packet);
             var seen = Interlocked.Increment(ref PacketsSeen);
+            if (seen <= VerboseFrames)
+            {
+                var type = DissonanceFrame.TryGetMessageType(bytes, out var t) ? t.ToString() : "no-magic";
+                Plugin.Logger.LogInfo($"Tap: SendUnreliable #{seen} {bytes.Length} bytes type={type} head={Hex(bytes, 8)}");
+            }
 
             if (!DissonanceFrame.TryParse(bytes, out var frame, out var error))
             {

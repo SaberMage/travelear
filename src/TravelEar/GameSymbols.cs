@@ -14,6 +14,11 @@ internal static class GameSymbols
     /// <summary><c>MirrorIgnoranceClient.SendUnreliable(ArraySegment&lt;byte&gt;)</c>: every Outbound Voice packet passes through here.</summary>
     public static MethodInfo MirrorClientSendUnreliable { get; private set; }
 
+    /// <summary>Spike S2 canaries (see <see cref="SpikeCanary"/>).</summary>
+    public static MethodInfo MirrorClientSendReliable { get; private set; }
+    public static MethodInfo MirrorClientSend { get; private set; }
+    public static MethodInfo CommsNetworkPreprocessPacketToServer { get; private set; }
+
     public static bool IsBound { get; private set; }
 
     // [impl->REQ-HAZARD-NO-PARTIAL-FIDELITY]
@@ -26,6 +31,12 @@ internal static class GameSymbols
         var missing = new List<string>();
 
         MirrorClientSendUnreliable = Method(missing, typeof(MirrorIgnoranceClient), "SendUnreliable",
+            typeof(Il2CppSystem.ArraySegment<byte>));
+        MirrorClientSendReliable = Method(missing, typeof(MirrorIgnoranceClient), "SendReliable",
+            typeof(Il2CppSystem.ArraySegment<byte>));
+        MirrorClientSend = Method(missing, typeof(MirrorIgnoranceClient), "Send",
+            typeof(Il2CppSystem.ArraySegment<byte>), typeof(byte));
+        CommsNetworkPreprocessPacketToServer = Method(missing, typeof(MirrorIgnoranceCommsNetwork), "PreprocessPacketToServer",
             typeof(Il2CppSystem.ArraySegment<byte>));
 
         if (missing.Count > 0)
