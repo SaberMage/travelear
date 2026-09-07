@@ -14,6 +14,10 @@
   `traceable-reqs check` → `mdbook build docs-site`).
 - Hosted fallbacks exist for the game-independent gates: `.github/workflows/traceability.yml`
   (coverage gate) and `.github/workflows/docs-publish.yml` (docs build + GitHub Pages).
+- The `traceable-reqs` CLI is released from a **private** repo, so the hosted coverage gate
+  only runs when the repository secret `TRACEABLE_REQS_TOKEN` (a fine-grained PAT with read
+  access to `BigscreenVR/traceable-reqs` releases) is set. Without it the job skips with a
+  notice; the fleet-host gate is the binding one either way.
 
 ## The gates (deterministic)
 
