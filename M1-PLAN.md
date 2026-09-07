@@ -104,6 +104,16 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
   when the pipe closes. Open question 1 answered YES by the operator (OBS meter moves on a
   non-default endpoint). **T1 done.**
 
+- **T2 code done** (2026-09-07). `GameSymbols.Bind` resolves
+  `Dissonance.Integrations.MirrorIgnorance.MirrorIgnoranceClient.SendUnreliable(ArraySegment<byte>)`
+  (signature confirmed with ilspycmd on the interop assembly) and disables the mod with one
+  error line on any miss. `OutboundVoiceTap` = Harmony postfix: copies the segment, parses with
+  `DissonanceFrame`, logs the first 5 frames at Info (seq, session, sender, channel session,
+  channels, payload bytes), then a summary every 250 packets; rejects at Warning; raises
+  `FrameTapped` for T3. Plugin references `TravelEar.Core`; `DeployToGame` copies both DLLs.
+  Deployed to the game. **Awaiting operator: open question 2** (host a solo session, PTT, read
+  `BepInEx\LogOutput.log` for `Tap: VoiceData seq=...` lines).
+
 ## Gate
 
 `pwsh scripts/gates.ps1` green: build, `dotnet test`, `traceable-reqs check` with the M1

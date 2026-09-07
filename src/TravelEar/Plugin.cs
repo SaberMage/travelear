@@ -2,6 +2,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
+using HarmonyLib;
 
 namespace TravelEar;
 
@@ -15,14 +16,44 @@ public sealed class Plugin : BasePlugin
     internal static ManualLogSource Logger;
     internal static PluginConfig Settings;
 
+    private Harmony _harmony;
+
     public override void Load()
     {
         Logger = Log;
         Settings = new PluginConfig(Config);
-
         Logger.LogInfo($"{Name} {VersionString} loaded. Enabled={Settings.Enabled.Value}");
-        // Next: install Harmony patches (Outbound Voice tap), create the Local Voice renderer,
-        // and spawn the Helper. See docs/DESIGN.md.
+
+        if (!Settings.Enabled.Value)
+        {
+            Logger.LogInfo("Disabled by config; no hooks installed.");
+            return;
+        }
+
+        // Hard-fail bind: any missing game symbol means no hooks at all (docs/KNOWN-HAZARDS.md).
+        if (!GameSymbols.Bind(Logger))
+            return;
+
+        try
+        {
+            _harmony = new Harmony(Guid);
+            _harmony.PatchAll(typeof(OutboundVoiceTap));
+            Logger.LogInfo("Outbound Voice tap installed on MirrorIgnoranceClient.SendUnreliable.");
+        }
+        catch (Exception e)
+        {
+            Logger.LogError($"TravelEar disabled: failed to install the Outbound Voice tap: {e}");
+            _harmony?.UnpatchSelf();
+            _harmony = null;
+        }
+        // Next (M1 T3): decode tapped frames, feed a mod-owned VoicePlayer, Tap filter, Sink pipe, Helper.
+    }
+
+    public override bool Unload()
+    {
+        _harmony?.UnpatchSelf();
+        _harmony = null;
+        return true;
     }
 }
 
