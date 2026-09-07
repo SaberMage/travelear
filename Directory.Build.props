@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <!-- Path to the Big Walk install. Override in Directory.Build.props.user (git-ignored) or via -p:GameDir=... -->
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Big Walk</GameDir>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0</Version>
+    <Authors>SaberMage</Authors>
+    <RepositoryUrl>https://github.com/SaberMage/travelear</RepositoryUrl>
+  </PropertyGroup>
+  <Import Project="Directory.Build.props.user" Condition="Exists('Directory.Build.props.user')" />
+</Project>

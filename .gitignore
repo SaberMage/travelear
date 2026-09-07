@@ -1,0 +1,9 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+Directory.Build.props.user
+dist/
+*.zip
+.claude/
