@@ -41,6 +41,9 @@ public sealed class Plugin : BasePlugin
             Logger.LogInfo("Outbound Voice tap installed on MirrorIgnoranceClient.SendUnreliable.");
             _harmony.PatchAll(typeof(EncodedVoiceTap));
             Logger.LogInfo("Encoded Voice tap installed on BaseClient.SendVoiceData.");
+            _harmony.PatchAll(typeof(OpusEncodeTap));
+            _harmony.PatchAll(typeof(EncodeFramesCanary));
+            Logger.LogInfo("Opus encode tap installed on OpusEncoder.Encode (+ EncodeFrames canary).");
             SpikeCanary.PatchAll(_harmony);
             Logger.LogInfo("Spike canaries installed (SendReliable, Send, PreprocessPacketToServer).");
             SpikeTriggerProbe.PatchAll(_harmony);

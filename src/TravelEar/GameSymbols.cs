@@ -1,6 +1,9 @@
 using System.Reflection;
 using BepInEx.Logging;
 using Dissonance;
+using Dissonance.Audio.Capture;
+using Dissonance.Audio.Codecs;
+using Dissonance.Audio.Codecs.Opus;
 using Dissonance.Integrations.MirrorIgnorance;
 using Dissonance.Networking;
 
@@ -18,6 +21,10 @@ internal static class GameSymbols
 
     /// <summary><c>BaseClient&lt;...&gt;.SendVoiceData(ArraySegment&lt;byte&gt;)</c>: every encoded Opus frame while transmitting, peers or not.</summary>
     public static MethodInfo BaseClientSendVoiceData { get; private set; }
+
+    /// <summary><c>OpusEncoder.Encode(ArraySegment&lt;float&gt;, ArraySegment&lt;byte&gt;)</c>: the codec call that produces Outbound Voice bytes.</summary>
+    public static MethodInfo OpusEncoderEncode { get; private set; }
+    public static MethodInfo EncoderPipelineEncodeFrames { get; private set; }
 
     /// <summary>Spike S2 canaries (see <see cref="SpikeCanary"/>).</summary>
     public static MethodInfo MirrorClientSendReliable { get; private set; }
@@ -45,6 +52,10 @@ internal static class GameSymbols
             typeof(Il2CppSystem.ArraySegment<byte>));
         BaseClientSendVoiceData = Method(missing, typeof(BaseClient<MirrorIgnoranceServer, MirrorIgnoranceClient, MirrorConn>), "SendVoiceData",
             typeof(Il2CppSystem.ArraySegment<byte>));
+        OpusEncoderEncode = Method(missing, typeof(OpusEncoder), "Encode",
+            typeof(Il2CppSystem.ArraySegment<float>), typeof(Il2CppSystem.ArraySegment<byte>));
+        EncoderPipelineEncodeFrames = Method(missing, typeof(EncoderPipeline), "EncodeFrames",
+            typeof(IVoiceEncoder), typeof(int));
         MirrorClientSendReliable = Method(missing, typeof(MirrorIgnoranceClient), "SendReliable",
             typeof(Il2CppSystem.ArraySegment<byte>));
         MirrorClientSend = Method(missing, typeof(MirrorIgnoranceClient), "Send",
