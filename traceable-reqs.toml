@@ -81,12 +81,12 @@ required_stages = []
 [[requirements]]
 id = "REQ-SINK-HELPER-PROCESS"
 title = "The Helper renders the Sink from outside the game's process tree so OBS Application Audio Capture isolates it"
-required_stages = ["doc"]  # M1: doc now; impl/unit added as evidence lands
+required_stages = ["doc", "impl"]  # M1 T1: Helper renders; "int" (operator OBS check) recorded in M1-PLAN, automated later
 
 [[requirements]]
 id = "REQ-SINK-ENDPOINT-CONFIG"
 title = "The Helper renders to the playback device matching SinkEndpoint, defaulting to the system default device"
-required_stages = ["doc"]  # M1: doc now; impl/unit added as evidence lands
+required_stages = ["doc", "impl", "unit"]  # M1 T1: SinkEndpointSelector + tests, Helper --endpoint
 
 [[requirements]]
 id = "REQ-SINK-LIFECYCLE"

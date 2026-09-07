@@ -58,6 +58,9 @@ The Helper is published self-contained:
 dotnet publish src/TravelEar.Helper -c Release
 ```
 
+`TravelEar.Helper.exe --tone [--endpoint <substring>]` renders a 440 Hz test tone so the OBS
+capture can be checked without the game. It logs to `%LOCALAPPDATA%\TravelEar\Helper.log`.
+
 Before declaring work done, run every gate:
 
 ```

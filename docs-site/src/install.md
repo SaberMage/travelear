@@ -34,6 +34,20 @@ To monitor on demand instead, leave `SinkEndpoint` empty, set **Audio Monitoring
 source to **Monitor Off**, and switch it to **Monitor and Output** when you want to hear
 yourself.
 
+## Testing the OBS capture without the game
+
+Run the Helper by hand with a test tone to confirm your OBS source hears it before you set up
+a session:
+
+```
+TravelEar.Helper.exe --tone
+TravelEar.Helper.exe --tone --endpoint "CABLE Input"
+```
+
+`--endpoint` takes part of a playback device name, exactly like `SinkEndpoint`. If no device
+matches, the Helper lists the active devices in its window and in
+`%LOCALAPPDATA%\TravelEar\Helper.log`, then exits. Close the Helper window to stop the tone.
+
 ## 4. Align with your raw mic track
 
 TravelEar's track trails your raw mic by the Offset the mod measures. Read it from

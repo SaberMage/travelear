@@ -18,4 +18,8 @@
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TravelEar.Core\TravelEar.Core.csproj" />
+  </ItemGroup>
+
 </Project>

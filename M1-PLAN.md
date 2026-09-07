@@ -89,6 +89,19 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
 - Add `impl`/`unit` stages to the activated reqs; `scripts/gates.ps1` green.
 - Write `M2-PLAN.md` (Mixer Stage re-synthesis, megaphone, Offset) just-in-time.
 
+## Status log
+
+- **T0 done** (`a39711d`, 2026-09-07). `TravelEar.Core` + 27 tests. Found and fixed a
+  traceability trap: the CLI has no built-in C# scanner, so `.cs` tags vanished until
+  `[scan.extensions] ".cs" = "c_like"` was added (now rule 7 in `docs/TRACEABILITY.md`).
+- **T1 code done** (2026-09-07). Helper renders `--tone` or Sink frames from the pipe
+  (`PipeDirection.In` client; the mod will be the server), minimized status window, exit codes
+  0 ok / 1 bad args / 2 no endpoint / 3 audio failure, log at `%LOCALAPPDATA%\TravelEar\Helper.log`.
+  Smoke-tested without OBS: unknown `--endpoint` exits 2 and lists devices; a scripted pipe
+  server sending 100 silent frames to the VoiceMeeter Aux endpoint renders and the Helper exits 0
+  when the pipe closes. **Open question 1 (OBS process capture on a non-default endpoint) still
+  needs the operator** — see T1 verification steps.
+
 ## Gate
 
 `pwsh scripts/gates.ps1` green: build, `dotnet test`, `traceable-reqs check` with the M1
