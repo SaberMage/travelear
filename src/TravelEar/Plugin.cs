@@ -3,6 +3,9 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
+using Il2CppInterop.Runtime.Injection;
+using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace TravelEar;
 
@@ -17,6 +20,9 @@ public sealed class Plugin : BasePlugin
     internal static PluginConfig Settings;
 
     private Harmony _harmony;
+    private SinkPump _pump;
+    private LocalVoiceRenderer _renderer;
+    private GameObject _driver;
 
     public override void Load()
     {
@@ -39,18 +45,35 @@ public sealed class Plugin : BasePlugin
             _harmony = new Harmony(Guid);
             _harmony.PatchAll(typeof(OutboundVoiceTap));
             Logger.LogInfo("Outbound Voice tap installed on OpusEncoder.Encode.");
+            _harmony.PatchAll(typeof(RoundTripProvider));
+            _harmony.PatchAll(typeof(TapFilter));
+            Logger.LogInfo("Round-trip provider guard and Tap installed.");
         }
         catch (Exception e)
         {
-            Logger.LogError($"TravelEar disabled: failed to install the Outbound Voice tap: {e}");
+            Logger.LogError($"TravelEar disabled: failed to install hooks: {e}");
             _harmony?.UnpatchSelf();
             _harmony = null;
+            return;
         }
-        // Next (M1 T3): decode tapped frames, feed a mod-owned VoicePlayer, Tap filter, Sink pipe, Helper.
+
+        // Sink side first: the pump only ever waits for a Helper, so it can never block the game.
+        _pump = new SinkPump(TapFilter.Ring, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate);
+        _pump.Start();
+        HelperLauncher.TryLaunch(Settings, Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".");
+
+        // Renderer: built lazily from the main thread once the game's audio system exists.
+        _renderer = new LocalVoiceRenderer(Logger, _pump);
+        ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
+        _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
+        Object.DontDestroyOnLoad(_driver);
+        _driver.AddComponent<TravelEarBehaviour>();
+        Logger.LogInfo("Local Voice renderer armed; waiting for the audio system.");
     }
 
     public override bool Unload()
     {
+        _pump?.Dispose();
         _harmony?.UnpatchSelf();
         _harmony = null;
         return true;
@@ -62,6 +85,7 @@ internal sealed class PluginConfig
 {
     public ConfigEntry<bool> Enabled { get; }
     public ConfigEntry<bool> SpawnHelper { get; }
+    public ConfigEntry<string> HelperPath { get; }
     public ConfigEntry<string> SinkEndpoint { get; }
     public ConfigEntry<bool> MixerStage { get; }
     public ConfigEntry<bool> Downmix { get; }
@@ -72,6 +96,8 @@ internal sealed class PluginConfig
             "Render Local Voice and stream it to the Sink.");
         SpawnHelper = file.Bind("Sink", "SpawnHelper", true,
             "Launch the TravelEar Helper process automatically when the game starts.");
+        HelperPath = file.Bind("Sink", "HelperPath", "",
+            "Full path to TravelEar.Helper.exe. Empty = the Helper folder next to the plugin.");
         SinkEndpoint = file.Bind("Sink", "SinkEndpoint", "",
             "Substring of the Windows playback device the Helper renders to. Empty = system default device.");
         MixerStage = file.Bind("Fidelity", "MixerStage", true,

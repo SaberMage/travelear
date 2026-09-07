@@ -1,6 +1,8 @@
 using System.Reflection;
 using BepInEx.Logging;
+using Dissonance.Audio.Codecs;
 using Dissonance.Audio.Codecs.Opus;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
 namespace TravelEar;
 
@@ -13,6 +15,18 @@ internal static class GameSymbols
 {
     /// <summary><c>OpusEncoder.Encode(ArraySegment&lt;float&gt;, ArraySegment&lt;byte&gt;)</c>: produces every Outbound Voice frame.</summary>
     public static MethodInfo OpusEncoderEncode { get; private set; }
+
+    /// <summary><c>OpusDecoder.Decode(EncodedBuffer, ArraySegment&lt;float&gt;)</c>: the game's own decoder, used for the round trip.</summary>
+    public static MethodInfo OpusDecoderDecode { get; private set; }
+
+    /// <summary><c>LocalVoiceProvider.Start()</c>: subscribes the provider to the mic; skipped for the mod-owned instance.</summary>
+    public static MethodInfo LocalVoiceProviderStart { get; private set; }
+
+    /// <summary>The provider's <c>IMicrophoneSubscriber.ReceiveMicrophoneData</c> proxy: how decoded PCM enters its ring.</summary>
+    public static MethodInfo LocalVoiceProviderReceive { get; private set; }
+
+    /// <summary><c>AudioFilterMixer.OnAudioFilterRead(float[], int)</c>: the end of the Filter Stage; the Tap sits here.</summary>
+    public static MethodInfo AudioFilterMixerOnAudioFilterRead { get; private set; }
 
     public static bool IsBound { get; private set; }
 
@@ -27,6 +41,28 @@ internal static class GameSymbols
 
         OpusEncoderEncode = Method(missing, typeof(OpusEncoder), "Encode",
             typeof(Il2CppSystem.ArraySegment<float>), typeof(Il2CppSystem.ArraySegment<byte>));
+        OpusDecoderDecode = Method(missing, typeof(OpusDecoder), "Decode",
+            typeof(EncodedBuffer), typeof(Il2CppSystem.ArraySegment<float>));
+        LocalVoiceProviderStart = Method(missing, typeof(LocalVoiceProvider), "Start");
+        LocalVoiceProviderReceive = Method(missing, typeof(LocalVoiceProvider),
+            "Dissonance_Audio_Capture_IMicrophoneSubscriber_ReceiveMicrophoneData",
+            typeof(Il2CppSystem.ArraySegment<float>), typeof(NAudio.Wave.WaveFormat));
+        AudioFilterMixerOnAudioFilterRead = Method(missing, typeof(AudioFilterMixer), "OnAudioFilterRead",
+            typeof(Il2CppStructArray<float>), typeof(int));
+
+        // Fields and properties the renderer assigns or reads (interop exposes fields as properties).
+        Property(missing, typeof(VoicePlayer), "Cue");
+        Property(missing, typeof(VoicePlayer), "LocalVoiceProvider");
+        Property(missing, typeof(VoicePlayer), "Volume");
+        Property(missing, typeof(VoicePlayer), "PlayerType");
+        Property(missing, typeof(VoicePlayer), "Controller");
+        Property(missing, typeof(AudioSourceController), "FilterMixer");
+        Property(missing, typeof(GlobalAudioEffects), "Instance");
+        Property(missing, typeof(GlobalAudioEffects), "VoiceCues");
+        Property(missing, typeof(AudioManager), "Instance");
+        Property(missing, typeof(AudioManager), "ListenerPosition");
+        Property(missing, typeof(LocalVoiceProvider), "CachedVoiceData");
+        Property(missing, typeof(LocalVoiceProvider), "CachedVoiceWriteHead");
 
         if (missing.Count > 0)
         {
@@ -40,13 +76,14 @@ internal static class GameSymbols
         return true;
     }
 
+    private const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
     private static MethodInfo Method(List<string> missing, Type type, string name, params Type[] parameters)
     {
         MethodInfo method = null;
         try
         {
-            method = type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static,
-                null, parameters, null);
+            method = type.GetMethod(name, Any, null, parameters, null);
         }
         catch (Exception)
         {
@@ -55,5 +92,20 @@ internal static class GameSymbols
         if (method is null)
             missing.Add($"{type.FullName}.{name}({string.Join(", ", parameters.Select(p => p.Name))})");
         return method;
+    }
+
+    private static void Property(List<string> missing, Type type, string name)
+    {
+        PropertyInfo property = null;
+        try
+        {
+            property = type.GetProperty(name, Any);
+        }
+        catch (Exception)
+        {
+            // Ambiguous: treated as missing below.
+        }
+        if (property is null)
+            missing.Add($"{type.FullName}.{name}");
     }
 }

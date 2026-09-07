@@ -52,7 +52,8 @@ Implements the game's `IVoiceDataProvider` ring-buffer contract (the same interf
 
 A mod-owned GameObject holding a game `VoicePlayer` whose `PlayerType` follows the local player's held item (`Clean` when nothing relevant is held, `Megaphone` when the megaphone is held). Fed by the round-trip provider, never by `LocalVoiceProvider`. The game's own local self-voice `VoicePlayer` instances are left untouched.
 
-The renderer's last `IAudioFilter` copies the processed buffer into a lock-free ring for the Sink and then zeroes the buffer, so the game's mixer receives silence from this source.
+<!-- [doc->REQ-TAP-DIVERT] -->
+The Tap sits at the end of the Filter Stage: a Harmony postfix on the source's `AudioFilterMixer.OnAudioFilterRead`, filtered to the renderer's own mixer. It copies the processed buffer into a lock-free ring for the Sink and then zeroes the buffer in place, so the game's mixer receives silence from this source. The zeroing is unconditional: a full ring drops samples, it never lets audio through.
 
 Self-Ear parameters: evaluate the game's attenuation, filter-distance, filter-angle, and spatial curves at distance 0 and angle 0, occlusion 0, and read the local player's own `outdoorness` and `echoAmount`. Apply `VoiceMakeupGain` exactly as `PlayerVoicePlaybackControl.Update` does for a remote player.
 

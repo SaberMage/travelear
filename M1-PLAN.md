@@ -134,6 +134,53 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
      Tap point moved to the encoder output (DESIGN.md updated); spike classes removed; the
      `DissonanceFrame` parser stays in Core as tested reference code.
 
+- **T3 bodies read** (2026-09-07, Cpp2IL `dll_il_recovery` + `callanalyzer` + `diffable-cs` + ISIL;
+  recipe in the project memory). What the game actually does, and what the code relies on:
+  - `VoicePlayer.Awake`: `_cachedClip = AudioClip.Create("Voice Player", bufferLength*numBuffers, 1,
+    outputSampleRate, stream:true, pcm => fill(1.0f))`; megaphone index parsed from the Cue name.
+  - `VoicePlayer.OnEnable` (needs a live `Cue`, else no-op): `_controller = AudioPlayHelper.Play(Cue,
+    zero, owner:this, null, followTransform:transform, rtpc:true, 0, fade const, _cachedClip, GetX,
+    false, null)`; `AddEvent(_onStop, clearRef)`; `AddVolume(Volume, this)`;
+    `_controller._filterSynthesizerMode = true` (+ its `AudioFilterMixer.SynthesizerMode`);
+    **`AddFilter(this, 0)`**; BitCrusher/Biquad/megaphone mixers only for Radio/Megaphone/Walkie/
+    SelfVoice; then `_readHead = SampleProvider.RecommendedVoiceReadHead`. Clean = nothing extra.
+  - `VoicePlayer.Update`: if `Cue` alive and `_controller` dead → destroy clip, `Awake()`, `OnEnable()`
+    (self-heals after a pooled controller stop). Megaphone block writes the `Megaphone*` mixer
+    floats; Walkie block does water depth. Clean does nothing per frame.
+  - `VoicePlayer.ProcessSamples(ref data, channels)`: `data[i] = provider.CachedVoiceData[_readHead++ & (len-1)]`
+    for every interleaved sample (no channel logic: the provider ring is already interleaved).
+  - `set_SampleProvider`: stores as `LocalVoiceProvider` or `SamplePlaybackComponent`, syncs
+    `_readHead`, subscribes `OnWriteHeadJump` → resync. `get_SampleProvider` = whichever is alive.
+  - `AudioFilterMixer.OnAudioFilterRead`: if `SynthesizerMode`: `_cachedData = data; data = 0`; run
+    every `Filters[i].ProcessSamples(ref data, channels)`; then `data[i] = clamp(_cachedData[i] * data[i], -1, 1)`
+    (non-synth: clamp only). So the constant-1.0 clip carries Unity's spatial/attenuation gain and
+    the mixer multiplies the voice by it: the postfix sees the complete Filter Stage output.
+  - `LocalVoiceProvider`: `Awake` sizes `CachedVoiceData` to the next power of two of
+    `bufferLength*numBuffers*channelCount` (channelCount from `AudioSettings.speakerMode`);
+    `ReceiveMicrophoneData` locks the ring, pins `_format` on first call (later mismatch throws),
+    duplicates each mono sample to `channelCount` interleaved slots, no resampling;
+    `RecommendedVoiceReadHead = writeHead - 2*bufferLength*numBuffers*channelCount` (mod len);
+    `Start` = `DissonanceComms.SubscribeToRecordedAudio(this)`; `Update` only fires `OnWriteHeadJump`.
+  - `PlayerVoicePlaybackControl` (remote voices) takes its cue from a stack built from
+    `GlobalAudioEffects.Instance.VoiceCues` (mixer group name = voice channel number 1..N).
+    `EchoRemote`/`RadioVoiceAssigner` set `VoicePlayer.SampleProvider` on prefab-carried players.
+  - `AudioSourceController` layout: `_filterMixer` (+0x110), `_filters` (+0x118),
+    `_filterSynthesizerMode` (+0x128), `_onStop` (+0x150); interop exposes `FilterMixer`/`Filters`.
+- **T3 code done** (2026-09-07), pending the in-game run: `LocalVoiceDecoder` (game `OpusDecoder`
+  48 kHz mono FEC, decodes into an IL2CPP float array), `RoundTripProvider` (mod-owned
+  `LocalVoiceProvider` on an inactive GameObject; Harmony prefix on `LocalVoiceProvider.Start` skips
+  the mic subscription for that instance only; decoded PCM pushed through the
+  `IMicrophoneSubscriber.ReceiveMicrophoneData` proxy on the encoder thread), `LocalVoiceRenderer`
+  (injected `TravelEarBehaviour` builds the renderer once `GlobalAudioEffects`/`AudioManager` exist:
+  `VoicePlayer` Clean, `Cue = VoiceCues[last]`, `Volume = new AudioVolume(1)`, provider field set
+  before activation; follows `AudioManager.ListenerPosition`; re-arms the Tap whenever
+  `Controller.FilterMixer` changes), `TapFilter` (postfix on `AudioFilterMixer.OnAudioFilterRead`
+  filtered by mixer pointer; `TapDivert.Divert` copies to the Sink ring and zeroes in place;
+  `REQ-TAP-DIVERT` activated with unit tests), `SinkPump` (pipe server `TravelEar.Sink`, sends
+  whatever the Tap produced per 5 ms tick, re-arms on disconnect), `HelperLauncher`
+  (`Process.Start` spike; `Sink.HelperPath` config; `DeployToGame` now copies the Helper build
+  output to `plugins\TravelEar\Helper`). Stats line every 10 s at Info.
+
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 
 - `VoicePlayer : MonoBehaviour` is itself the `IAudioFilter` (`ProcessSamples(ref
