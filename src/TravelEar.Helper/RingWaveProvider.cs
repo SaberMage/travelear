@@ -8,12 +8,18 @@ namespace TravelEar.Helper;
 /// float32 interleaved samples; the ring pads with silence when the pipe falls behind, so the
 /// stream never stalls. When the pipe runs ahead (start-up burst, clock drift between the game's
 /// DSP and the endpoint) the backlog is trimmed back to <see cref="TargetBacklogMs"/>, so the
-/// ring never becomes latency: it holds at most <see cref="MaxBacklogMs"/> before a trim.
+/// ring never becomes unbounded latency: it holds at most <see cref="MaxBacklogMs"/> before a trim.
+/// <para>
+/// The band between the two is the jitter budget: a pad (underrun) is a gap and a trim is a cut,
+/// and either lands mid-word as a click. M1 ran 30-80 ms, and M2 run 4 heard "debris" with the
+/// game rendering; the per-frame Offset spread inside one 10 s window was ~200 ms, so the band is
+/// now 100-200 ms. The cost is ~70 ms more Offset, which the Offset line reports.
+/// </para>
 /// </summary>
 internal sealed class RingWaveProvider : IWaveProvider
 {
-    public const int MaxBacklogMs = 80;
-    public const int TargetBacklogMs = 30;
+    public const int MaxBacklogMs = 200;
+    public const int TargetBacklogMs = 100;
 
     public int SampleRate { get; }
     public int Channels { get; }

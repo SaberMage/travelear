@@ -167,6 +167,7 @@ internal sealed class SinkRenderer : IDisposable
         RingWaveProvider? provider = null;
         long frames = 0;
         var lastStatus = DateTime.MinValue;
+        var lastLog = DateTime.UtcNow;
 
         try
         {
@@ -218,6 +219,11 @@ internal sealed class SinkRenderer : IDisposable
                 }
 
                 var now = DateTime.UtcNow;
+                if ((now - lastLog).TotalSeconds >= 10 && provider is not null)
+                {
+                    lastLog = now;
+                    HelperLog.Write($"Stream: frames {frames}, buffered {provider.Ring.Count} smp, underruns {provider.Ring.Underruns}, dropped {provider.Ring.DroppedSamples} smp, trims {provider.Trims} ({provider.TrimmedSamples} smp), offset reports {provider.Reports}");
+                }
                 if ((now - lastStatus).TotalMilliseconds >= StatusIntervalMs && provider is not null)
                 {
                     lastStatus = now;

@@ -211,6 +211,30 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   flickers audibly; the stats line shows `fade in/out` and `hold`. Operator check owed
   (run 4): speech smooth, no debris, noise floor still gone, onsets intact; the
   `Transmit fade:` line shows the game's values.
+- **M2 run 4** (2026-09-07, operator solo run on `b8f704d`): `Transmit fade: in 0 ms, out
+  150 ms (the game's '(unnamed)' trigger fades out over 150 ms); gate hold 210 ms`, signal
+  changes down to 84 (231 in run 3), silenced 137 of 1349 frames. Operator: debris "maybe
+  marginally better / less frequent, definitely still there". So the gate was at most a
+  contributor. Mod-side counters are clean: silence frames flat through every speech window
+  (the main thread never splices zeros into a burst), resyncs 6 (four "reader overran" before
+  the first word, one "burst start"), Sink ring 0 dropped / 0 underruns, `Offset:` 292-300 ms
+  averages with a ~200 ms per-frame spread inside a window. Suspects left, in order: (1) the
+  Helper's ring, which kept only 30-80 ms of headroom against a 40 ms WASAPI pull and that
+  200 ms jitter, so it must have been padding (gaps) and trimming (cuts) during speech; no
+  counter reached the log to prove it (the status window shows them, the log did not); (2)
+  the endpoint, which Helper.log names as `VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)`, a
+  virtual device whose engine crackles under CPU load; (3) something in the frames themselves
+  (T1 dynamics, decoder copy), which the counters cannot see.
+- **Fix: Sink jitter budget** (2026-09-07): Helper `RingWaveProvider` band raised to 100-200 ms
+  (target/trim) from 30-80 ms, and the Helper logs `Stream: frames, buffered, underruns,
+  dropped, trims, offset reports` every 10 s. Run 5 discriminates: Helper.log counters at
+  zero with debris gone = (1); counters at zero with debris present and the OBS capture of
+  the Helper window clean while the headphones are not = (2), the operator's VoiceMeeter
+  engine (fix on that side: a bigger VoiceMeeter buffer, or `Sink.SinkEndpoint` pointed at a
+  physical device); counters at zero with debris in the OBS capture too = (3), next stop the
+  frame path (a `Fidelity.TransmitGate = false` run and a T1-off comparison). A test tone
+  from a second Helper (`TravelEar.Helper.exe --tone`) under game load is the quickest ear
+  test for (2).
 - **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
   `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
   Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged
