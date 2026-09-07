@@ -1,0 +1,206 @@
+/* experimplate docs theme — Starlight-inspired skin over mdBook.
+   North star: Astro Starlight's look (accent violet-blue, calm dark surface,
+   tight typographic rhythm, soft-rounded panels) — its look, not its
+   toolchain (DOCS-STRATEGY). Layered onto the ayu theme's variables.
+
+   This is a SHARED, transferable theme — reuse it verbatim across consumer
+   projects. Re-point `--theme-accent` to rebrand. */
+
+/* NOTE on units: mdBook sets `html { font-size: 62.5% }`, so 1rem = 10px
+   here — every rem below is in 10px units (Starlight's 16px-based values
+   are converted: 1rem Starlight = 1.6rem mdBook). */
+:root {
+  --theme-accent: #4f7cf7;
+  --theme-accent-high: #82a7ff;
+  --theme-radius: 8px;
+  /* Starlight's content measure: --sl-content-width = 45rem @16px = 720px. */
+  --content-max-width: 72rem;
+}
+
+/* ---- base surface + type ---- */
+.ayu {
+  --bg: #17181c;
+  --fg: #e7e9ee;
+  --sidebar-bg: #1b1d23;
+  --sidebar-fg: #b3b8c3;
+  --sidebar-active: var(--theme-accent-high);
+  --scrollbar: #2a2d35;
+  --links: var(--theme-accent-high);
+  --inline-code-color: #e7e9ee;
+  --theme-popup-bg: #1b1d23;
+  --theme-popup-border: #2a2d35;
+  --theme-hover: #23262e;
+  --quote-bg: #1d2027;
+  --quote-border: var(--theme-accent);
+  --table-border-color: #2a2d35;
+  --table-header-bg: #1f2229;
+  --table-alternate-bg: #1b1d23;
+  --searchbar-bg: #1f2229;
+  --searchbar-fg: #e7e9ee;
+  --searchresults-header-fg: #8b91a0;
+  --searchresults-border-color: #2a2d35;
+  --color-scheme: dark;
+}
+
+html {
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+/* Starlight body text: 1rem/1.75 -> 1.6rem here (16px). */
+.content {
+  font-size: 1.6rem;
+  line-height: 1.75;
+}
+
+/* ---- headings: Starlight's scale (mobile base, stepped up ≥50rem like
+   Starlight's breakpoint), line-height 1.2 ---- */
+.content h1 {
+  font-size: 3rem; /* 1.875rem @16px */
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6em;
+}
+.content h2 {
+  font-size: 2.4rem; /* 1.5rem @16px */
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 1.75em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid #2a2d35;
+}
+.content h3 {
+  font-size: 2rem; /* 1.25rem @16px */
+  line-height: 1.2;
+  font-weight: 600;
+  margin-top: 1.5em;
+}
+.content h4 {
+  font-size: 1.7rem;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+/* Starlight steps the scale up at its 50rem (800px) breakpoint:
+   h1 1.875→2.25rem, h2 1.5→1.875rem, h3 1.25→1.5rem. */
+@media (min-width: 800px) {
+  .content h1 {
+    font-size: 3.6rem;
+  }
+  .content h2 {
+    font-size: 3rem;
+  }
+  .content h3 {
+    font-size: 2.4rem;
+  }
+  .content h4 {
+    font-size: 2rem;
+  }
+}
+
+/* ---- links ---- */
+.content a {
+  color: var(--theme-accent-high);
+  text-decoration: none;
+}
+.content a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- code ---- */
+:not(pre) > .hljs {
+  background: #23262e;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9375em; /* Starlight inline code: 0.9375em of body */
+}
+pre {
+  border-radius: var(--theme-radius);
+}
+pre > .hljs {
+  background: #1b1d23 !important;
+  border: 1px solid #2a2d35;
+  border-radius: var(--theme-radius);
+  padding: 1.6rem 2rem;
+  font-size: 1.4rem; /* Starlight code blocks: 0.875rem @16px = 14px */
+  line-height: 1.65;
+}
+
+/* ---- blockquotes as Starlight "note" asides ---- */
+.content blockquote {
+  background: var(--quote-bg);
+  border: 1px solid #2a2d35;
+  border-left: 3px solid var(--theme-accent);
+  border-radius: 0 var(--theme-radius) var(--theme-radius) 0;
+  padding: 0.75rem 1.1rem;
+  margin: 1.25rem 0;
+}
+.content blockquote p {
+  margin: 0.35rem 0;
+}
+
+/* ---- tables ---- */
+.content table {
+  border-collapse: collapse;
+  border-radius: var(--theme-radius);
+  overflow: hidden;
+  width: 100%;
+}
+.content table th {
+  text-align: left;
+  font-weight: 600;
+  background: var(--table-header-bg);
+}
+.content table th,
+.content table td {
+  border: 1px solid var(--table-border-color);
+  padding: 0.45rem 0.75rem;
+}
+
+/* ---- sidebar: Starlight's quiet rail (0.875rem @16px = 14px) ---- */
+.sidebar {
+  font-size: 1.4rem;
+}
+.sidebar .part-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 1.2rem;
+  font-weight: 650;
+  color: #8b91a0;
+  margin-top: 2rem;
+}
+.sidebar .chapter li.chapter-item {
+  margin: 0.15rem 0;
+}
+.sidebar .chapter li > a {
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+}
+.sidebar .chapter li > a:hover {
+  background: var(--theme-hover);
+  text-decoration: none;
+}
+.sidebar .chapter li > a.active {
+  background: rgba(79, 124, 247, 0.14);
+  color: var(--theme-accent-high);
+  font-weight: 600;
+}
+
+/* ---- top bar ---- */
+#menu-bar {
+  border-bottom: 1px solid #23262e;
+}
+.menu-title {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* ---- light theme fallback keeps the same accent ---- */
+.light,
+.rust {
+  --links: #2b5cd9;
+  --quote-border: #2b5cd9;
+}

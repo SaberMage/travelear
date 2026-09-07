@@ -1,0 +1,129 @@
+# traceable-reqs manifest for TravelEar.
+#
+# Authoritative requirement registry: every requirement and every KNOWN-HAZARDS
+# invariant lives here as a REQ-* id (see docs/TRACEABILITY.md for the full contract).
+#
+# ACQUIRE the CLI (it is a released binary, not a crate dependency):
+#   gh release download --repo BigscreenVR/traceable-reqs \
+#     --pattern '*windows*.exe' --output traceable-reqs.exe
+# Validate this manifest against the installed CLI: `traceable-reqs check`.
+#
+# THE FOUR-STAGE CONTRACT: every requirement is traced from
+#   doc  (prose/design)  ->  impl (production code)  ->  unit (unit test)  ->  int (cross-process/node)
+# Tag evidence in the SAME commit, on/above the real evidence:
+#   // [impl->REQ-FOO]   // [unit->REQ-FOO]   <!-- [doc->REQ-FOO] -->
+#
+# ACTIVATION MODEL: every requirement starts inactive (`required_stages = []`) so `check`
+# stays green pre-code. A milestone ACTIVATES its requirements by setting their real
+# `required_stages` when work on them begins. Deferred items stay [] until promoted.
+
+[scan]
+# Every evidence location. A missing root makes evidence SILENTLY vanish from the trace —
+# audit this whenever a new evidence dir appears.
+# Add "tests" here the moment the first test project lands (a nonexistent root is a manifest_error).
+roots = ["src", "docs", "scripts", "CONTEXT.md", "README.md"]
+
+[policy]
+# Default policy applied at activation: doc + impl + unit. The Sink/Helper reqs cross a
+# process boundary and add "int" when activated.
+required_stages = []
+
+# ───────────────────────────── Voice pipeline ─────────────────────────────
+
+[[requirements]]
+id = "REQ-VOICE-OUTBOUND-TAP"
+title = "The mod captures the exact Opus packets the game sends to peers (Outbound Voice)"
+required_stages = []
+
+[[requirements]]
+id = "REQ-VOICE-ROUNDTRIP"
+title = "Outbound Voice is decoded with the game's own Opus decoder into a provider any game VoicePlayer can consume"
+required_stages = []
+
+[[requirements]]
+id = "REQ-VOICE-CONTINUOUS"
+title = "The Local Voice stream is continuous from game launch; silence is emitted when no packets arrive"
+required_stages = []
+
+# ───────────────────────────── Rendering ──────────────────────────────────
+
+[[requirements]]
+id = "REQ-EAR-SELF"
+title = "Local Voice is rendered from the Self-Ear: distance 0, angle 0, no occlusion, the local player's own outdoorness"
+required_stages = []
+
+[[requirements]]
+id = "REQ-RENDER-CLEAN"
+title = "Clean Voice renders through a mod-owned game VoicePlayer with the game's makeup gain applied"
+required_stages = []
+
+[[requirements]]
+id = "REQ-RENDER-MEGAPHONE"
+title = "Megaphone Voice renders when the local player holds the megaphone and reverts to Clean Voice when they drop it"
+required_stages = []
+
+[[requirements]]
+id = "REQ-MIXER-RESYNTH"
+title = "Mixer Stage effects are re-synthesized from the live mixer floats the game writes, each individually toggleable"
+required_stages = []
+
+[[requirements]]
+id = "REQ-TAP-DIVERT"
+title = "The Tap copies the processed buffer and zeroes it so Local Voice never enters the game's mix"
+required_stages = []
+
+# ───────────────────────────── Sink & Helper ──────────────────────────────
+
+[[requirements]]
+id = "REQ-SINK-HELPER-PROCESS"
+title = "The Helper renders the Sink from outside the game's process tree so OBS Application Audio Capture isolates it"
+required_stages = []
+
+[[requirements]]
+id = "REQ-SINK-ENDPOINT-CONFIG"
+title = "The Helper renders to the playback device matching SinkEndpoint, defaulting to the system default device"
+required_stages = []
+
+[[requirements]]
+id = "REQ-SINK-LIFECYCLE"
+title = "The mod spawns the Helper once per session, retries the pipe every 5 s, and the Helper exits when the pipe closes"
+required_stages = []
+
+[[requirements]]
+id = "REQ-SINK-FORMAT"
+title = "The Sink carries float32 48 kHz PCM with the Tap's channel count, or mono when Downmix is set"
+required_stages = []
+
+[[requirements]]
+id = "REQ-OFFSET-MEASURE"
+title = "Offset is measured end to end and reported as a rolling 10 s average in the log and, where supported, the pause-menu Audio section"
+required_stages = []
+
+# ───────────────────────────── Configuration ──────────────────────────────
+
+[[requirements]]
+id = "REQ-CONFIG-BEPINEX"
+title = "All user settings are BepInEx config entries so ModSettingsMenu surfaces them without registration"
+required_stages = []
+
+# ───────────────────────────── Hazards (docs/KNOWN-HAZARDS.md) ────────────
+
+[[requirements]]
+id = "REQ-HAZARD-NO-GAME-AUDIO-LEAK"
+title = "Local Voice is never audible in the game's own audio output"
+required_stages = []
+
+[[requirements]]
+id = "REQ-HAZARD-NO-GAMEPLAY-IMPACT"
+title = "A missing Helper, missing OBS, or Sink failure never changes gameplay or what the local player hears"
+required_stages = []
+
+[[requirements]]
+id = "REQ-HAZARD-NO-PARTIAL-FIDELITY"
+title = "If any game hook or mixer parameter fails to bind, the mod disables itself and logs once instead of emitting lower-fidelity audio"
+required_stages = []
+
+[[requirements]]
+id = "REQ-HAZARD-NO-PEER-SURFACE"
+title = "The mod never sends network messages or creates network identities visible to peers"
+required_stages = []

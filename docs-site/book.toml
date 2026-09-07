@@ -1,0 +1,15 @@
+[book]
+title = "TravelEar for Big Walk"
+description = "Hear and record your own Big Walk voice the way other players hear it."
+authors = ["SaberMage"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+additional-css = ["theme/theme.css"]
+git-repository-url = "https://github.com/SaberMage/travelear"
+edit-url-template = "https://github.com/SaberMage/travelear/edit/main/docs-site/{path}"
+site-url = "/travelear/"

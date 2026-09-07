@@ -1,0 +1,41 @@
+# Install and record with OBS
+
+You need Big Walk on Windows with BepInEx 6 (IL2CPP) already installed, and OBS Studio 28 or
+newer on Windows 10 2004 or Windows 11.
+
+## 1. Install the mod
+
+1. Download `TravelEar-vX.Y.Z.zip` from the
+   [latest release](https://github.com/SaberMage/travelear/releases/latest).
+2. Extract it so that you have `Big Walk\BepInEx\plugins\TravelEar\TravelEar.dll` and
+   `Big Walk\BepInEx\plugins\TravelEar\TravelEar.Helper.exe`.
+3. Launch Big Walk once. The mod writes `BepInEx\config\com.sabermage.travelear.cfg` and
+   starts the Helper. A minimized window titled **TravelEar for Big Walk** appears in your
+   taskbar.
+
+## 2. Add the track in OBS
+
+1. In OBS, add a source: **Application Audio Capture**.
+2. Set **Window** to **TravelEar for Big Walk** and tick **Match by executable**.
+3. Open **Advanced Audio Properties** and route the new source to its own track (for example
+   track 3). Record with that track enabled.
+
+Speak in a session. The new source's meter moves a few dozen milliseconds after your own mic
+meter.
+
+## 3. Choose whether you hear it
+
+By default the Helper plays to your system default output device, so you hear your processed
+voice with a short delay. To record it silently, set `SinkEndpoint` in the config to part of the
+name of a playback device you are not listening to, such as a spare HDMI output, VB-CABLE, or a
+VoiceMeeter input. Restart the game after changing it.
+
+To monitor on demand instead, leave `SinkEndpoint` empty, set **Audio Monitoring** on the OBS
+source to **Monitor Off**, and switch it to **Monitor and Output** when you want to hear
+yourself.
+
+## 4. Align with your raw mic track
+
+TravelEar's track trails your raw mic by the Offset the mod measures. Read it from
+`BepInEx\LogOutput.log` (a line like `TravelEar offset: 68 ms`) and enter that value as the
+**Sync Offset** on your raw mic source if you want both tracks sample-aligned for editing.

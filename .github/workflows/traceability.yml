@@ -1,0 +1,20 @@
+# Hosted fallback for the deterministic gates that need no game install:
+# requirement coverage (hard) and the traceability quality audit (advisory).
+name: traceability
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install traceable-reqs
+        run: |
+          gh release download --repo BigscreenVR/traceable-reqs --pattern '*linux-x86_64' --output traceable-reqs
+          chmod +x traceable-reqs
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Coverage gate (hard)
+        run: ./traceable-reqs check --json
+      - name: Quality audit (advisory)
+        run: ./traceable-reqs lint || true

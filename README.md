@@ -5,6 +5,8 @@ A [Big Walk](https://store.steampowered.com/app/1478500/Big_Walk/) mod that lets
 Big Walk's proximity voice chat runs your mic through Opus, then through the game's own processing on every listener's machine: makeup gain, distance and angle filtering, occlusion, reverb, and item effects like the megaphone. You never hear any of that yourself. TravelEar renders that processed voice ("Local Voice") from your own position and streams it to a separate Windows audio source that OBS can record as its own track or monitor in your headphones. It is never mixed into the game's audio.
 
 Status: design complete, implementation not started. See [docs/DESIGN.md](docs/DESIGN.md).
+Full docs: [sabermage.github.io/travelear](https://sabermage.github.io/travelear/) (built from
+`docs-site/`). Contributors and dev-agents start at [AGENTS.md](AGENTS.md).
 
 ## How it works
 
@@ -55,6 +57,15 @@ The Helper is published self-contained:
 ```
 dotnet publish src/TravelEar.Helper -c Release
 ```
+
+Before declaring work done, run every gate:
+
+```
+pwsh scripts/gates.ps1
+```
+
+Requirements are tracked in `traceable-reqs.toml` and gated by
+[traceable-reqs](https://github.com/BigscreenVR/traceable-reqs); see [docs/TRACEABILITY.md](docs/TRACEABILITY.md).
 
 ## Scope
 
