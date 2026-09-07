@@ -179,6 +179,46 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   in the stats line. `REQ-OFFSET-MEASURE` doc+impl+unit. Operator check owed: after a run, the
   `Offset:` lines exist, the number is plausible (expect roughly the 150-180 ms ring lag plus
   ~50 ms of Sink/endpoint), and lowering the margin lowers it until resyncs climb.
+- **T5 hazard units built** (2026-09-07, pulled forward while T0/T1 waited): `REQ-HAZARD-NO-GAME-AUDIO-LEAK`
+  unit = `TapDivert` sweep over 1/2/4/6/8 channels x 256-4096 frame blocks x empty/half/full
+  ring (block always all zeros afterwards, ring holds exactly what it accepted).
+  `REQ-HAZARD-NO-PARTIAL-FIDELITY` impl+unit = the bind step's bookkeeping moved to Core
+  `SymbolBinder` (injectable lookups; a lookup that returns null or throws is a miss; `Complete`
+  yields one verdict and one log line naming every miss), `GameSymbols.Bind` now goes through
+  it. `REQ-HAZARD-NO-PEER-SURFACE` unit = source audit of `src/TravelEar/*.cs` (the plugin
+  assembly cannot load in a test process): only `[HarmonyPostfix]` plus the one whitelisted
+  prefix `RoundTripProvider.SkipMicSubscription`, which must return true for every instance but
+  the mod-owned pointer; no transpiler/reverse/finalizer patches; no send/join/network calls in
+  code (comments excluded).
+
+### T1 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-voice-dsp.md`)
+
+Chain per DSP block on a remote voice: constant-1.0 clip carries Unity's spatial gain, then
+`AudioFilterMixer` runs `SamplePlaybackComponent.ProcessSamples` (gain ramp to `MakeupGain` ->
+`VoiceCompressor.Process` -> `SoftClip` -> `data[i] *= voice`), then `BiquadFilters _eqFilter`
+(PeakingEQ 400 Hz, Q 0.3, +30 dB, Vol 0.03, DryWet from distance/angle curves), then the
+blindfold low-pass (bypassed), then clamp +-1; synthesizer mode is not used on that path (our
+Clean `VoicePlayer` path does use it). Per frame `PlayerVoicePlaybackControl.Update` writes the
+mixer floats for its pooled channel and calls `VoiceMakeupGain.Evaluate(name, arv, isSpeaking,
+dt)`. Exact constants: compressor threshold 0.6 (or `min(TargetARV*4, 0.6)`), knee 0.4 x
+threshold, attack 5 ms, release 150 ms, ratio 2; soft clip knee 0.85, headroom ~0.1, asymptote
+0.95; makeup gain targets ARV 0.132 with 24 dB/s slew in the first second of speech, then 12 up
+/ 1 down, gate `max(0.005, env*0.1)`; `arv` = mean |sample| of the block before gain and
+compressor.
+
+Decisions (question 2): **port** the compressor, soft clip, gain ramp and ARV metering into Core
+(`VoiceDynamics`, pure, unit-tested against the constants above) and apply them on the encoder
+thread before the provider push; **port** `VoiceMakeupGain` too (40 lines; reusing the game's
+static dictionary would need a distinct key and still risks its shared state), reading the
+game's `TargetARV`/`Threshold` statics read-only so the in-game voice slider still couples;
+**reuse** `BiquadFilters` by attaching one to our controller's GameObject after our provider,
+configured as `PlayVoice` does, with `DryWet` hard-set (default 0 = dry, config
+`Fidelity.SelfEarEqDryWet`) instead of replicating curves the Self-Ear evaluates at their left
+edge (question 3 stays a knob). **Do not** write `Dry{n}`/`High{n}`/reverb floats: those
+belong to a pooled channel another player owns; the Self-Ear is dry, unreverbed, unoccluded by
+construction (Mixer Stage remains ADR-0002's own re-synthesis, T4/M3). `isSpeaking` comes from
+our burst detection. Audible if skipped: level mismatch against remote voices (makeup gain),
+peaks hitting the hard clamp instead of the 0.95 soft ceiling.
 
 ## Gate
 

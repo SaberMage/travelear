@@ -4,6 +4,7 @@ using Dissonance;
 using Dissonance.Audio.Codecs;
 using Dissonance.Audio.Codecs.Opus;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using TravelEar.Core;
 
 namespace TravelEar;
 
@@ -41,7 +42,7 @@ internal static class GameSymbols
     /// </summary>
     public static bool Bind(ManualLogSource log)
     {
-        var missing = new List<string>();
+        var missing = new SymbolBinder();
 
         OpusEncoderEncode = Method(missing, typeof(OpusEncoder), "Encode",
             typeof(Il2CppSystem.ArraySegment<float>), typeof(Il2CppSystem.ArraySegment<byte>));
@@ -83,48 +84,31 @@ internal static class GameSymbols
         Property(missing, typeof(VoiceBroadcastTrigger), "RoomName");
         Property(missing, typeof(VoiceBroadcastTrigger), "Mode");
 
-        if (missing.Count > 0)
-        {
-            IsBound = false;
-            log.LogError($"TravelEar disabled: {missing.Count} game symbol(s) not found after a game update: {string.Join(", ", missing)}");
-            return false;
-        }
-
-        IsBound = true;
-        log.LogInfo("Game symbols bound.");
-        return true;
+        // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
+        IsBound = missing.Complete(out var report);
+        if (IsBound) log.LogInfo(report);
+        else log.LogError(report);
+        return IsBound;
     }
 
     private const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 
-    private static MethodInfo Method(List<string> missing, Type type, string name, params Type[] parameters)
+    // No lambdas here: a lambda returning a BCL reference type makes the compiler synthesize
+    // NullableAttribute, which clashes with the Il2CppInterop proxies (see the csproj).
+    private static MethodInfo Method(SymbolBinder binder, Type type, string name, params Type[] parameters)
     {
         MethodInfo method = null;
-        try
-        {
-            method = type.GetMethod(name, Any, null, parameters, null);
-        }
-        catch (Exception)
-        {
-            // Ambiguous or otherwise unresolvable: treated as missing below.
-        }
-        if (method is null)
-            missing.Add($"{type.FullName}.{name}({string.Join(", ", parameters.Select(p => p.Name))})");
+        try { method = type.GetMethod(name, Any, null, parameters, null); }
+        catch (Exception) { /* ambiguous or unresolvable: a miss, never fatal here */ }
+        binder.Require($"{type.FullName}.{name}({string.Join(", ", parameters.Select(p => p.Name))})", method != null);
         return method;
     }
 
-    private static void Property(List<string> missing, Type type, string name)
+    private static void Property(SymbolBinder binder, Type type, string name)
     {
         PropertyInfo property = null;
-        try
-        {
-            property = type.GetProperty(name, Any);
-        }
-        catch (Exception)
-        {
-            // Ambiguous: treated as missing below.
-        }
-        if (property is null)
-            missing.Add($"{type.FullName}.{name}");
+        try { property = type.GetProperty(name, Any); }
+        catch (Exception) { /* ambiguous: a miss */ }
+        binder.Require($"{type.FullName}.{name}", property != null);
     }
 }

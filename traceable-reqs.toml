@@ -115,7 +115,7 @@ required_stages = []
 [[requirements]]
 id = "REQ-HAZARD-NO-GAME-AUDIO-LEAK"
 title = "Local Voice is never audible in the game's own audio output"
-required_stages = ["impl"]  # M1 T3: the Tap zeroes its block unconditionally; "unit" once a harness can drive the mixer
+required_stages = ["impl", "unit"]  # M1 T3: the Tap zeroes its block unconditionally; M2 T5: TapDivert sweep over channel counts, block sizes, ring states
 
 [[requirements]]
 id = "REQ-HAZARD-NO-GAMEPLAY-IMPACT"
@@ -125,9 +125,9 @@ required_stages = ["impl", "unit"]  # M2 T3: failed spawn absorbed and never ret
 [[requirements]]
 id = "REQ-HAZARD-NO-PARTIAL-FIDELITY"
 title = "If any game hook or mixer parameter fails to bind, the mod disables itself and logs once instead of emitting lower-fidelity audio"
-required_stages = []
+required_stages = ["impl", "unit"]  # M2 T5: SymbolBinder (injectable lookups, one report line) + tests; GameSymbols.Bind goes through it
 
 [[requirements]]
 id = "REQ-HAZARD-NO-PEER-SURFACE"
 title = "The mod never sends network messages or creates network identities visible to peers"
-required_stages = []
+required_stages = ["unit"]  # M2 T5: patch-set audit over the plugin source (postfixes + one whitelisted prefix, no transpilers, no sends)
