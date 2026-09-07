@@ -69,7 +69,7 @@ public sealed class Plugin : BasePlugin
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.ReadHeadMarginFrames.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -99,6 +99,7 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> Downmix { get; }
     public ConfigEntry<float> ReadHeadMarginFrames { get; }
     public ConfigEntry<float> SelfEarForwardMeters { get; }
+    public ConfigEntry<float> SelfEarEqDryWet { get; }
 
     public PluginConfig(ConfigFile file)
     {
@@ -121,5 +122,8 @@ internal sealed class PluginConfig
             "How far behind the provider's write head the Local Voice read head is placed at each talk burst, in 60 ms frames. Lower = less Offset but more read-head resyncs (see the 'Local Voice stats' log line); raise it if resyncs climb.");
         SelfEarForwardMeters = file.Bind("Ear", "SelfEarForwardMeters", 0.0762f,
             "How far in front of the listener the Local Voice emitter sits, in metres (0.0762 = 3 in). 0 puts it on the listener, which pans oddly.");
+        // [impl->REQ-EAR-SELF]
+        SelfEarEqDryWet = file.Bind("Fidelity", "SelfEarEqDryWet", 0f,
+            "Wet mix (0-1) of the game's 400 Hz voice EQ on Local Voice. Remote voices fade it in with distance and angle; at the Self-Ear both are zero, so 0 = the dry voice a listener next to you hears. Raise it to hear the through-a-wall character.");
     }
 }

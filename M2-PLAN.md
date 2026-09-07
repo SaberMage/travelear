@@ -191,6 +191,21 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   the mod-owned pointer; no transpiler/reverse/finalizer patches; no send/join/network calls in
   code (comments excluded).
 
+- **T1 built** (2026-09-07, after the bodies read): Core `VoiceCompressor`, `VoiceDynamics` (gain
+  ramp -> compressor -> soft clip, in place on a mono block; meters arv, output arv, pre-clip
+  peak, reduction) and `VoiceMakeupGain` (one instance, the game's constants), unit-tested against
+  the reference. Renderer: `ProcessRemotePath` on the encoder thread between decode and push
+  (burst start = the game's session reset), `UpdateMakeupGain` once per frame on the main thread
+  (speaking = a gate-passed burst within 250 ms; `TargetARV` and `VoiceCompressor.Threshold`
+  read from the game, fallback to the reference level), `RefreshEq` attaches a `BiquadFilters`
+  PeakingEQ (400 Hz, Q 0.3, +30 dB, Vol 0.03) to the pooled source only when config
+  `Fidelity.SelfEarEqDryWet` > 0 (at 0 it is an exact passthrough and a component on a pooled
+  source would follow it to its next owner), removed when the controller changes. The stats line
+  gained a `remote path:` segment. The decoder copies the IL2CPP buffer through a managed scratch
+  (2 x 2880 floats per frame) rather than aliasing the IL2CPP array. Question 3 stays a knob.
+  Operator check owed: Local Voice level matches what a peer hears; `remote path:` shows makeup
+  moving with speech and settling; no "EQ attach failed" warning when the knob is raised.
+
 ### T1 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-voice-dsp.md`)
 
 Chain per DSP block on a remote voice: constant-1.0 clip carries Unity's spatial gain, then

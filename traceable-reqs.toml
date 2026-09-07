@@ -59,7 +59,7 @@ required_stages = ["doc", "impl"]  # M1 T3: emitter pinned to the listener (Self
 [[requirements]]
 id = "REQ-RENDER-CLEAN"
 title = "Clean Voice renders through a mod-owned game VoicePlayer with the game's makeup gain applied"
-required_stages = []
+required_stages = ["doc", "impl", "unit"]  # M2 T1: VoiceDynamics (gain ramp, compressor, soft clip) + VoiceMakeupGain ported to Core, applied before the provider push
 
 [[requirements]]
 id = "REQ-RENDER-MEGAPHONE"

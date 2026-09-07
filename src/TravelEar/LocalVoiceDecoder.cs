@@ -60,6 +60,18 @@ internal sealed class LocalVoiceDecoder
         return count;
     }
 
+    /// <summary>Copies the first <paramref name="count"/> decoded samples into managed memory.</summary>
+    public void CopyTo(float[] destination, int count)
+    {
+        for (var i = 0; i < count; i++) destination[i] = _pcm[i];
+    }
+
+    /// <summary>Writes <paramref name="count"/> processed samples back over the decoded ones.</summary>
+    public void CopyFrom(float[] source, int count)
+    {
+        for (var i = 0; i < count; i++) _pcm[i] = source[i];
+    }
+
     /// <summary>
     /// Builds <c>Nullable&lt;ArraySegment&lt;byte&gt;&gt;</c> by copying the segment's payload into a
     /// zeroed boxed Nullable. The interop-generated <c>Nullable(T value)</c> constructor cannot be

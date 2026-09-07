@@ -18,7 +18,11 @@ namespace TravelEar;
 /// the emitter to the listener (Self-Ear), (3) keeps the Tap pointed at the controller's current
 /// mixer, (4) keeps the provider's read head a fixed, small distance behind the write head and
 /// (5) gates what the ring receives on the "peers receive" signal (<see cref="TransmitSignal"/>),
-/// pushing silence instead of the decoded frame while nothing is sent to peers.
+/// pushing silence instead of the decoded frame while nothing is sent to peers, and (6) runs the
+/// decoded frame through the processing every remote voice gets before it reaches the ring
+/// (<see cref="VoiceDynamics"/> on the encoder thread, <see cref="Core.VoiceMakeupGain"/> once per
+/// frame; docs/reference/big-walk-voice-dsp.md), with the game's 400 Hz voice EQ attached to the
+/// pooled source when config <c>SelfEarEqDryWet</c> asks for any of its wet path.
 /// <para>
 /// Cue: the last entry of <c>GlobalAudioEffects.Instance.VoiceCues</c>, the same cue kind the
 /// game hands remote players (spatial settings, attenuation and RTPCs identical). Its mixer
@@ -80,17 +84,32 @@ internal sealed class LocalVoiceRenderer
     private int _lastDecodedSamples;
     private volatile int _ringChannels;
 
+    // Remote-path processing (REQ-RENDER-CLEAN). Encoder thread: _dynamics, _scratch. Main thread:
+    // _makeup, the EQ. The volatile floats cross between them once per block / frame.
+    private readonly VoiceDynamics _dynamics = new();
+    private readonly Core.VoiceMakeupGain _makeup = new();
+    private readonly float[] _scratch = new float[8192];
+    private volatile float _makeupGain = 1f;
+    private volatile float _threshold = 0.528f; // ThresholdFor(ReferenceArv) until the game's statics are read
+    private volatile float _lastArv;
+    private volatile bool _lastPushWasVoice;
+    private bool _reportedMakeupError;
+    private readonly float _eqDryWet;
+    private BiquadFilters _eq;
+    private AudioSourceController _eqController;
+
     public static LocalVoiceRenderer Instance { get; private set; }
 
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate, float readHeadMarginFrames)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate, float readHeadMarginFrames, float eqDryWet)
     {
         _log = log;
         _pump = pump;
         _forwardMeters = forwardMeters;
         _gateEnabled = transmitGate;
+        _eqDryWet = float.IsNaN(eqDryWet) ? 0f : Mathf.Clamp01(eqDryWet);
         ReadHeadMarginFrames = readHeadMarginFrames > 0 && !float.IsNaN(readHeadMarginFrames) ? readHeadMarginFrames : 1.5f;
         Instance = this;
     }
@@ -108,6 +127,7 @@ internal sealed class LocalVoiceRenderer
         RefreshTapTarget();
         PinEmitter();
         SampleTransmitSignal();
+        UpdateMakeupGain();
         GuardLag();
         KeepRingFresh();
 
@@ -173,6 +193,7 @@ internal sealed class LocalVoiceRenderer
 
         _tapTarget = target;
         TapFilter.SetTarget(target);
+        RefreshEq(target == IntPtr.Zero ? null : controller);
         if (target == IntPtr.Zero)
             _log.LogInfo("Local Voice: controller gone; Tap idle until the VoicePlayer re-plays.");
         else
@@ -300,8 +321,19 @@ internal sealed class LocalVoiceRenderer
             // [impl->REQ-VOICE-CONTINUOUS]
             var decision = _gateEnabled ? _gate.Decide(_transmitting, now * 1000.0 / Stopwatch.Frequency) : GateDecision.Pass;
             // [impl->REQ-OFFSET-MEASURE]
-            if (decision == GateDecision.Pass) RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
-            else RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
+            if (decision == GateDecision.Pass)
+            {
+                // [impl->REQ-RENDER-CLEAN]
+                if (gapMs > BurstGapMs) _dynamics.Reset(_makeupGain); // the game's session-change reset
+                ProcessRemotePath(count);
+                RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
+                _lastPushWasVoice = true;
+            }
+            else
+            {
+                RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
+                _lastPushWasVoice = false;
+            }
             if (gapMs > BurstGapMs) ResyncReadHead(count, "burst start");
 
             if (first) _log.LogInfo($"Local Voice: frame 1 step C, pushed; provider write head {RoundTripProvider.Provider?.CachedVoiceWriteHead}.");
@@ -323,6 +355,102 @@ internal sealed class LocalVoiceRenderer
             _gateSilenceSamples = samples;
         }
         return _gateSilence;
+    }
+
+    // [impl->REQ-RENDER-CLEAN]
+    /// <summary>
+    /// Encoder thread: the remote path's per-sample processing (gain ramp, compressor, soft clip)
+    /// over the decoded frame, in place, and the block's input level for the makeup-gain loop.
+    /// </summary>
+    private void ProcessRemotePath(int count)
+    {
+        if (count > _scratch.Length) count = _scratch.Length;
+        _decoder.CopyTo(_scratch, count);
+        _dynamics.Process(_scratch.AsSpan(0, count), _makeupGain, _threshold, LocalVoiceDecoder.SampleRate);
+        _decoder.CopyFrom(_scratch, count);
+        _lastArv = _dynamics.Arv;
+    }
+
+    // [impl->REQ-RENDER-CLEAN]
+    /// <summary>
+    /// Main thread, once per frame, as <c>PlayerVoicePlaybackControl.Update</c> does for a remote
+    /// voice: feeds the last block's level to the makeup-gain loop and publishes the gain and the
+    /// compressor threshold for the next block. "Speaking" is a talk burst in progress that the
+    /// gate let through. The game's <c>TargetARV</c> and compressor threshold are read (never
+    /// written) so the in-game voice volume slider still couples; if they cannot be read the loop
+    /// runs at the reference level.
+    /// </summary>
+    private void UpdateMakeupGain()
+    {
+        var sinceMs = (Stopwatch.GetTimestamp() - Interlocked.Read(ref _lastPushTimestamp)) * 1000.0 / Stopwatch.Frequency;
+        var speaking = _lastPushWasVoice && sinceMs <= BurstGapMs;
+        float targetArv, threshold;
+        try
+        {
+            targetArv = VoiceMakeupGain.TargetARV;
+            threshold = VoiceCompressor.Threshold;
+        }
+        catch (Exception e)
+        {
+            if (!_reportedMakeupError)
+            {
+                _reportedMakeupError = true;
+                _log.LogWarning($"Local Voice: game makeup-gain statics unreadable, using the reference level: {e.Message}");
+            }
+            targetArv = Core.VoiceMakeupGain.ReferenceArv;
+            threshold = Core.VoiceMakeupGain.ThresholdFor(targetArv);
+        }
+        _makeupGain = _makeup.Evaluate(_lastArv, speaking, Time.deltaTime, targetArv);
+        _threshold = threshold;
+    }
+
+    // [impl->REQ-EAR-SELF]
+    /// <summary>
+    /// The game's per-voice EQ (<c>PlayVoice</c>: PeakingEQ 400 Hz, Q 0.3, +30 dB, Vol 0.03) on
+    /// the pooled source our VoicePlayer plays through, with its wet mix pinned to config
+    /// <c>SelfEarEqDryWet</c> instead of the distance/angle curves, which the Self-Ear evaluates at
+    /// their left edge. At 0 the filter is an exact passthrough, so none is attached: the pooled
+    /// source belongs to the game, and a component left on it would follow it to its next owner.
+    /// Whatever was attached is removed when the controller changes.
+    /// </summary>
+    private void RefreshEq(AudioSourceController controller)
+    {
+        if (_eq is not null)
+        {
+            try
+            {
+                _eqController?.RemoveFilter(_eq.Cast<IAudioFilter>());
+                Object.Destroy(_eq);
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning($"Local Voice: EQ removal failed: {e.Message}");
+            }
+            _eq = null;
+            _eqController = null;
+        }
+        if (_eqDryWet <= 0f || controller is null) return;
+
+        try
+        {
+            var eq = controller.gameObject.AddComponent<BiquadFilters>();
+            eq.Type = BiquadFilters.FilterType.PeakingEQ;
+            eq.Frequency = 400f;
+            eq.Q = 0.3f;
+            eq.Gain = 30f;
+            eq.Vol = 0.03f;
+            eq.DryWet = _eqDryWet;
+            eq._dirty = true;
+            var index = controller.FilterMixer?.Filters?.Count ?? 1;
+            controller.AddFilter(eq.Cast<IAudioFilter>(), index);
+            _eq = eq;
+            _eqController = controller;
+            _log.LogInfo($"Local Voice: voice EQ attached at filter index {index} (PeakingEQ 400 Hz, dry/wet {_eqDryWet:F2}).");
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning($"Local Voice: voice EQ attach failed, Self-Ear stays dry: {e.Message}");
+        }
     }
 
     // [impl->REQ-VOICE-CONTINUOUS]
@@ -442,7 +570,8 @@ internal sealed class LocalVoiceRenderer
             $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
             $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
             $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}; " +
-            $"gate {(_gateEnabled ? "on" : "off")}: transmitting {_transmitting}, passed {_gate.FramesPassed}, silenced {_gate.FramesSilenced}, signal changes {_signalChanges}.");
+            $"gate {(_gateEnabled ? "on" : "off")}: transmitting {_transmitting}, passed {_gate.FramesPassed}, silenced {_gate.FramesSilenced}, signal changes {_signalChanges}; " +
+            $"remote path: makeup {_makeupGain:F2} ({_makeup.GainDb:F1} dB, level {_makeup.Level:F3}), arv {_lastArv:F3}, reduction {_dynamics.Reduction:F2}, pre-clip peak {_dynamics.PreClipPeak:F2}, threshold {_threshold:F3}, eq {(_eq is null ? "off" : $"wet {_eqDryWet:F2}")}.");
         LogGameAudioState();
     }
 
