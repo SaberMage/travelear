@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using BepInEx.Logging;
+using Il2CppInterop.Runtime;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -11,41 +13,66 @@ namespace TravelEar;
 /// <c>Cue</c> through <c>AudioPlayHelper.Play</c> with a streaming clip of constant 1.0, puts
 /// itself at index 0 of the source's filter list, and switches the source's
 /// <c>AudioFilterMixer</c> into synthesizer mode; if its controller is ever reclaimed it re-runs
-/// Awake/OnEnable from Update. The renderer only (1) builds it once the audio system exists,
-/// (2) keeps it at the listener (Self-Ear: distance 0) and (3) keeps the Tap pointed at the
-/// controller's current mixer.
+/// Awake/OnEnable from Update. The renderer (1) builds it once the audio system exists, (2) pins
+/// the emitter to the listener (Self-Ear), (3) keeps the Tap pointed at the controller's current
+/// mixer and (4) keeps the provider's read head a fixed, small distance behind the write head.
 /// <para>
 /// Cue: the last entry of <c>GlobalAudioEffects.Instance.VoiceCues</c>, the same cue kind the
 /// game hands remote players (spatial settings, attenuation and RTPCs identical). Its mixer
 /// group is irrelevant because the Tap removes the signal before the mixer.
+/// </para>
+/// <para>
+/// Emitter placement (M1 T3 run 2): letting the pooled source follow our transform through the
+/// game's own follow logic lags one frame behind the camera, which flips left/right while
+/// strafing, and a source at the exact listener position produces stereo artifacts. The source
+/// transform is therefore parented rigidly to the <c>AudioListener</c> with a forward offset
+/// (config <c>SelfEarForwardMeters</c>, default 3 in, the operator's Self-Ear note in
+/// docs/DESIGN.md) and the controller's follow target is cleared.
 /// </para>
 /// </summary>
 internal sealed class LocalVoiceRenderer
 {
     private const float StatsIntervalSeconds = 10f;
 
+    /// <summary>A gap this long between pushed frames starts a new talk burst.</summary>
+    private const int BurstGapMs = 250;
+
+    /// <summary>Read head distance behind the write head at a burst start, in Opus frames.</summary>
+    private const float ReadHeadMarginFrames = 1.5f;
+
+    /// <summary>Lag beyond this many frames while talking triggers a resync (drift / missed burst).</summary>
+    private const float MaxLagFrames = 4f;
+
     private readonly ManualLogSource _log;
     private readonly SinkPump _pump;
+    private readonly float _forwardMeters;
     private LocalVoiceDecoder _decoder;
     private GameObject _voiceObject;
     private VoicePlayer _player;
     private IntPtr _tapTarget;
+    private Transform _listener;
+    private Transform _pinnedSource;
+    private Transform _pinnedSourceOriginalParent;
     private bool _built;
     private bool _reportedNoCues;
     private float _nextStats;
     private long _decodeErrors;
     private long _framesDecoded;
+    private long _lastPushTimestamp;
+    private long _resyncs;
     private int _lastDecodedSamples;
+    private volatile int _ringChannels;
 
     public static LocalVoiceRenderer Instance { get; private set; }
 
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters)
     {
         _log = log;
         _pump = pump;
+        _forwardMeters = forwardMeters;
         Instance = this;
     }
 
@@ -59,10 +86,9 @@ internal sealed class LocalVoiceRenderer
             if (!_built) return;
         }
 
-        if (_voiceObject is not null)
-            _voiceObject.transform.position = AudioManager.ListenerPosition;
-
         RefreshTapTarget();
+        PinEmitter();
+        GuardLag();
 
         if (Time.unscaledTime >= _nextStats)
         {
@@ -88,7 +114,7 @@ internal sealed class LocalVoiceRenderer
         var cue = cues[cues.Length - 1];
         AudioSettings.GetDSPBufferSize(out var bufferLength, out var numBuffers);
         SampleRate = AudioSettings.outputSampleRate;
-        _log.LogInfo($"Local Voice: DSP {SampleRate} Hz, buffer {bufferLength} x {numBuffers}, speaker mode {AudioSettings.speakerMode}; cue '{cue.name}' ({cues.Length} voice cues).");
+        _log.LogInfo($"Local Voice: DSP {SampleRate} Hz, buffer {bufferLength} x {numBuffers}, speaker mode {AudioSettings.speakerMode}; cue '{cue.name}' ({cues.Length} voice cues); emitter {_forwardMeters * 100f:F1} cm ahead of the listener.");
         if (SampleRate != LocalVoiceDecoder.SampleRate)
             _log.LogWarning($"Local Voice: DSP rate {SampleRate} != decoder rate {LocalVoiceDecoder.SampleRate}; the provider does not resample, expect a pitch shift.");
 
@@ -111,7 +137,8 @@ internal sealed class LocalVoiceRenderer
         _voiceObject.SetActive(true); // provider Awake (ring), VoicePlayer Awake (clip) + OnEnable (play, filter 0)
 
         var ring = provider.CachedVoiceData;
-        _log.LogInfo($"Local Voice: renderer built; provider ring {ring?.Length ?? 0} samples, controller {(_player.Controller is null ? "pending" : "live")}.");
+        _ringChannels = Math.Max(1, provider._channelCount);
+        _log.LogInfo($"Local Voice: renderer built; provider ring {ring?.Length ?? 0} samples x {_ringChannels} ch, controller {(_player.Controller is null ? "pending" : "live")}.");
         _built = true;
     }
 
@@ -130,6 +157,56 @@ internal sealed class LocalVoiceRenderer
             _log.LogInfo($"Local Voice: Tap armed on mixer of '{controller.name}' (synth mode {mixer.SynthesizerMode}, {mixer.Filters?.Count ?? -1} filters).");
     }
 
+    // [impl->REQ-EAR-SELF]
+    /// <summary>
+    /// Parents the live source transform to the AudioListener at the forward offset and clears the
+    /// controller's follow target; restores the previous parent when the controller goes away so a
+    /// pooled source never stays stuck on the listener.
+    /// </summary>
+    private void PinEmitter()
+    {
+        var controller = _player?.Controller;
+        var source = controller?.AudioSource;
+        var sourceTransform = source is null ? null : source.transform;
+
+        if (_pinnedSource is not null && (sourceTransform is null || sourceTransform.Pointer != _pinnedSource.Pointer))
+        {
+            try
+            {
+                _pinnedSource.SetParent(_pinnedSourceOriginalParent, true);
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning($"Local Voice: could not restore the pooled source's parent: {e.Message}");
+            }
+            _pinnedSource = null;
+            _pinnedSourceOriginalParent = null;
+        }
+
+        if (sourceTransform is null) return;
+
+        if (_listener is null || _listener.Pointer == IntPtr.Zero || _listener.gameObject is null)
+        {
+            var listener = Object.FindObjectOfType(Il2CppType.Of<AudioListener>())?.TryCast<AudioListener>();
+            _listener = listener?.transform;
+            if (_listener is null) return;
+            _log.LogInfo($"Local Voice: listener is '{listener.name}'.");
+        }
+
+        var pinned = _pinnedSource is not null && _pinnedSource.parent is not null && _pinnedSource.parent.Pointer == _listener.Pointer;
+        if (pinned) return;
+
+        _pinnedSource = sourceTransform;
+        _pinnedSourceOriginalParent = sourceTransform.parent;
+        controller.FollowTransform = null;
+        sourceTransform.SetParent(_listener, false);
+        sourceTransform.localPosition = new Vector3(0f, 0f, _forwardMeters);
+        sourceTransform.localRotation = Quaternion.identity;
+        _voiceObject.transform.SetParent(_listener, false);
+        _voiceObject.transform.localPosition = sourceTransform.localPosition;
+        _log.LogInfo($"Local Voice: emitter pinned to the listener, {_forwardMeters * 100f:F1} cm forward (follow cleared).");
+    }
+
     /// <summary>Encoder thread: decode with the game's decoder and push into the provider ring.</summary>
     private void OnFrameEncoded(int sequence, byte[] opus)
     {
@@ -141,7 +218,14 @@ internal sealed class LocalVoiceRenderer
             if (first) _log.LogInfo($"Local Voice: frame 1 step B, decoded {count} samples.");
             if (count <= 0) return;
             _lastDecodedSamples = count;
+
+            var now = Stopwatch.GetTimestamp();
+            var gapMs = (now - Interlocked.Read(ref _lastPushTimestamp)) * 1000.0 / Stopwatch.Frequency;
+            Interlocked.Exchange(ref _lastPushTimestamp, now);
+
             RoundTripProvider.Push(pcm);
+            if (gapMs > BurstGapMs) ResyncReadHead(count, "burst start");
+
             if (first) _log.LogInfo($"Local Voice: frame 1 step C, pushed; provider write head {RoundTripProvider.Provider?.CachedVoiceWriteHead}.");
             Interlocked.Increment(ref _framesDecoded);
         }
@@ -152,13 +236,56 @@ internal sealed class LocalVoiceRenderer
         }
     }
 
+    /// <summary>
+    /// Puts the VoicePlayer's read head a fixed margin behind the provider's write head. The game
+    /// starts the read head two DSP buffer sets behind the write head at enable time and only
+    /// resyncs on a mic reset, so with push-to-talk bursts the phase between the two was random:
+    /// up to a full ring (341 ms at 32768 stereo samples) of pure latency.
+    /// </summary>
+    private void ResyncReadHead(int frameSamples, string reason)
+    {
+        var provider = RoundTripProvider.Provider;
+        var ring = provider?.CachedVoiceData;
+        if (provider is null || ring is null || _player is null) return;
+        var length = ring.Length;
+        var margin = (int)(frameSamples * ReadHeadMarginFrames) * _ringChannels;
+        var readHead = ((provider.CachedVoiceWriteHead - margin) % length + length) % length;
+        _player.UpdateReadHead(readHead);
+        if (Interlocked.Increment(ref _resyncs) <= 5)
+            _log.LogInfo($"Local Voice: read head resync ({reason}): write {provider.CachedVoiceWriteHead}, read {readHead}, margin {margin} samples.");
+    }
+
+    /// <summary>Main thread: resync if the lag drifted far while a burst is in progress.</summary>
+    private void GuardLag()
+    {
+        if (_lastDecodedSamples <= 0) return;
+        var sinceMs = (Stopwatch.GetTimestamp() - Interlocked.Read(ref _lastPushTimestamp)) * 1000.0 / Stopwatch.Frequency;
+        if (sinceMs > BurstGapMs) return;
+        var lag = ProviderLagSamples();
+        var frame = _lastDecodedSamples * _ringChannels;
+        if (lag > frame * MaxLagFrames || lag < frame * 0.25f)
+            ResyncReadHead(_lastDecodedSamples, $"lag {lag} samples");
+    }
+
+    /// <summary>Samples between the provider's write head and the VoicePlayer's read head (0 = reader caught up).</summary>
+    private int ProviderLagSamples()
+    {
+        var provider = RoundTripProvider.Provider;
+        var ring = provider?.CachedVoiceData;
+        if (provider is null || ring is null || _player is null) return 0;
+        var length = ring.Length;
+        return ((provider.CachedVoiceWriteHead - _player._readHead) % length + length) % length;
+    }
+
     private void LogStats()
     {
         var provider = RoundTripProvider.Provider;
+        var lag = ProviderLagSamples();
+        var lagMs = SampleRate > 0 && _ringChannels > 0 ? lag * 1000.0 / (SampleRate * _ringChannels) : 0;
         _log.LogInfo(
             $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), " +
             $"pushed {Interlocked.Read(ref RoundTripProvider.FramesPushed)}, errors {Interlocked.Read(ref _decodeErrors)}; " +
-            $"provider write head {provider?.CachedVoiceWriteHead ?? -1}; " +
+            $"provider write head {provider?.CachedVoiceWriteHead ?? -1}, lag {lag} smp ({lagMs:F0} ms), resyncs {Interlocked.Read(ref _resyncs)}; " +
             $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
             $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
             $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}.");
@@ -175,7 +302,7 @@ internal sealed class LocalVoiceRenderer
             var sourceText = source is null
                 ? "source none"
                 : $"source playing={source.isPlaying} vol={source.volume:F2} mute={source.mute} spatial={source.spatialBlend:F2} " +
-                  $"group='{source.outputAudioMixerGroup?.name}' clip='{source.clip?.name}' pos={source.transform.position}";
+                  $"group='{source.outputAudioMixerGroup?.name}' clip='{source.clip?.name}' local={source.transform.localPosition} parent='{source.transform.parent?.name}'";
             _log.LogInfo(
                 $"Game audio: listener vol={AudioListener.volume:F2} pause={AudioListener.pause}; " +
                 $"master={(manager?.MasterVolume is null ? -1f : (float)manager.MasterVolume):F2} " +

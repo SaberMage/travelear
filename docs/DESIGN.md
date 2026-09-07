@@ -55,7 +55,8 @@ A mod-owned GameObject holding a game `VoicePlayer` whose `PlayerType` follows t
 <!-- [doc->REQ-TAP-DIVERT] -->
 The Tap sits at the end of the Filter Stage: a Harmony postfix on the source's `AudioFilterMixer.OnAudioFilterRead`, filtered to the renderer's own mixer. It copies the processed buffer into a lock-free ring for the Sink and then zeroes the buffer in place, so the game's mixer receives silence from this source. The zeroing is unconditional: a full ring drops samples, it never lets audio through.
 
-Self-Ear parameters: evaluate the game's attenuation, filter-distance, filter-angle, and spatial curves at distance 0 and angle 0, occlusion 0, and read the local player's own `outdoorness` and `echoAmount`. Apply `VoiceMakeupGain` exactly as `PlayerVoicePlaybackControl.Update` does for a remote player.
+<!-- [doc->REQ-EAR-SELF] -->
+Self-Ear parameters: the emitter (the pooled `AudioSource` the game's `VoicePlayer` plays through) is parented rigidly to the `AudioListener` transform, a short distance straight ahead (config `SelfEarForwardMeters`, default 3 in / 0.0762 m), with the controller's own follow-transform logic cleared. Rigid parenting is required: the game's follow logic updates the source one frame behind the camera, which flips left/right while strafing; and a source at the exact listener position produces stereo artifacts (M1 T3 run 2). Evaluate the game's attenuation, filter-distance, filter-angle, and spatial curves at that offset, occlusion 0, and read the local player's own `outdoorness` and `echoAmount`. Apply `VoiceMakeupGain` exactly as `PlayerVoicePlaybackControl.Update` does for a remote player.
 
 Self-Ear geometry (operator note, 2026-09-07, for later experimentation): a person does not hear their own voice on-axis. The voice leaves at the edges of the mouth and through the cheeks, so from the speaker's own ears it radiates roughly perpendicular, as a cone of about 160-170 degrees whose apex sits 2-3 inches in front of the ears. A peer voice pointed straight at the listener sits at angle 0 on the game's filter-angle curve; the Self-Ear should therefore probably sit off-axis on that curve (some extra `High{n}` roll-off relative to a peer facing you) rather than at angle 0. Treat the angle-0 value above as the v1 starting point and calibrate the off-axis amount by ear against a second-client recording.
 
@@ -92,7 +93,7 @@ BepInEx config entries (auto-surfaced as toggles by ModSettingsMenu if present).
 
 1. OBS process-loopback capture of a stream rendered to a non-default endpoint. **Answered yes** (M1, 2026-09-07).
 2. Harmony postfix on the Dissonance send path under IL2CPP; confirm frame parse. **Answered** (M1, 2026-09-07): postfixes fire; the frame parse is byte-exact; the tap moved upstream to `OpusEncoder.Encode` (see the tap section).
-3. Instantiate a game `VoicePlayer` from mod code with a mod-provided `IVoiceDataProvider`.
+3. Instantiate a game `VoicePlayer` from mod code with a mod-provided `IVoiceDataProvider`. **Answered yes** (M1, 2026-09-07): a mod-owned instance of the game's own `LocalVoiceProvider` (mic subscription skipped by a Harmony prefix) fed through its `IMicrophoneSubscriber` proxy drives a mod-owned Clean `VoicePlayer`; the operator heard Local Voice end to end through the Helper. No IL2CPP interface implemented from managed code.
 
 ## Test setup
 

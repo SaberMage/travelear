@@ -63,7 +63,7 @@ public sealed class Plugin : BasePlugin
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -89,6 +89,7 @@ internal sealed class PluginConfig
     public ConfigEntry<string> SinkEndpoint { get; }
     public ConfigEntry<bool> MixerStage { get; }
     public ConfigEntry<bool> Downmix { get; }
+    public ConfigEntry<float> SelfEarForwardMeters { get; }
 
     public PluginConfig(ConfigFile file)
     {
@@ -104,5 +105,7 @@ internal sealed class PluginConfig
             "Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character).");
         Downmix = file.Bind("Sink", "Downmix", false,
             "Downmix Local Voice to mono before sending it to the Sink.");
+        SelfEarForwardMeters = file.Bind("Ear", "SelfEarForwardMeters", 0.0762f,
+            "How far in front of the listener the Local Voice emitter sits, in metres (0.0762 = 3 in). 0 puts it on the listener, which pans oddly.");
     }
 }

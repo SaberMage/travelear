@@ -181,6 +181,26 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
   (`Process.Start` spike; `Sink.HelperPath` config; `DeployToGame` now copies the Helper build
   output to `plugins\TravelEar\Helper`). Stats line every 10 s at Info.
 
+- **T3 in-game runs** (2026-09-07):
+  1. Crash (AV in coreclr) on the first decoded frame: the interop-generated `Nullable<T>(T)`
+     ctor passes the boxed pointer for a struct-proxy `T`; fixed by building the
+     `Nullable<ArraySegment<byte>>` payload by memory copy (`LocalVoiceDecoder.WrapNullable`).
+     Also moved the Helper out of `plugins` (BepInEx examined all 260 files).
+  2. **Open question 3 answered YES; first end-to-end Local Voice.** Operator heard himself
+     through the Helper (after restarting a wedged VoiceMeeter engine; the Helper renders to the
+     system default device unless `SinkEndpoint` is set). Log: 1033 frames decoded/pushed, Tap
+     peaks 0.4 while speaking, 4475 Sink frames. Findings: (a) ~800-900 ms lag; (b) emitter
+     lagged the camera (louder in the opposite ear while strafing) because the pooled source
+     follows our transform through the game's follow logic one frame late; (c) stereo
+     artifacts when still, emitter at the exact listener point.
+  3. Fixes for the next run: emitter parented rigidly to the `AudioListener` at
+     `SelfEarForwardMeters` (default 3 in) with `FollowTransform` cleared (REQ-EAR-SELF
+     activated doc+impl); provider read head resynced 1.5 frames behind the write head at each
+     talk-burst start plus a lag guard (the game's read head phase was random per burst: up to
+     341 ms); Helper ring backlog clamped (trim to 30 ms when above 80 ms; `VoiceRingBuffer.Discard`
+     + tests). Stats line now shows provider lag in ms and resyncs; "Game audio" line shows
+     listener/master/mute state and our source.
+
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 
 - `VoicePlayer : MonoBehaviour` is itself the `IAudioFilter` (`ProcessSamples(ref

@@ -81,6 +81,21 @@ public sealed class VoiceRingBuffer
         return toRead;
     }
 
+    /// <summary>
+    /// Discards up to <paramref name="count"/> of the oldest buffered samples. Reader side only.
+    /// Used by the Helper to clamp its backlog: a consumer that falls behind the producer would
+    /// otherwise turn the whole ring into latency. Returns how many were discarded.
+    /// </summary>
+    public int Discard(int count)
+    {
+        if (count <= 0) return 0;
+        var tail = _tail;
+        var head = Volatile.Read(ref _head);
+        var toDrop = Math.Min(count, (int)(head - tail));
+        if (toDrop > 0) Volatile.Write(ref _tail, tail + toDrop);
+        return toDrop;
+    }
+
     /// <summary>Discards everything buffered. Reader side only.</summary>
     public void Clear()
     {

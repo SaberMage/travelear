@@ -204,7 +204,8 @@ internal sealed class SinkRenderer : IDisposable
                     _report($"Endpoint : {device.FriendlyName}\nPipe     : {_options.PipeName}\n" +
                             $"Stream   : {provider.SampleRate} Hz {provider.Channels} ch\n" +
                             $"Frames   : {frames}   buffered {provider.Ring.Count} samples\n" +
-                            $"Underruns: {provider.Ring.Underruns}   dropped {provider.Ring.DroppedSamples}");
+                            $"Underruns: {provider.Ring.Underruns}   dropped {provider.Ring.DroppedSamples}\n" +
+                            $"Trims    : {provider.Trims} ({provider.TrimmedSamples} samples; cap {RingWaveProvider.MaxBacklogMs} ms)");
                 }
             }
         }

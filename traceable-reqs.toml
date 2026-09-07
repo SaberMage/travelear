@@ -54,7 +54,7 @@ required_stages = []
 [[requirements]]
 id = "REQ-EAR-SELF"
 title = "Local Voice is rendered from the Self-Ear: distance 0, angle 0, no occlusion, the local player's own outdoorness"
-required_stages = []
+required_stages = ["doc", "impl"]  # M1 T3: emitter pinned to the listener (SelfEarForwardMeters); curves/outdoorness in M2
 
 [[requirements]]
 id = "REQ-RENDER-CLEAN"
