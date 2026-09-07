@@ -27,6 +27,22 @@ public class HelperOptionsTests
         Assert.Equal("Test.Pipe", a.PipeName);
     }
 
+    // [unit->REQ-SINK-LIFECYCLE]
+    [Fact]
+    public void Detach_round_trips_and_is_dropped_for_the_detached_copy()
+    {
+        var launched = HelperOptions.Default with { EndpointSetting = "CABLE", Detach = true };
+        Assert.Equal(new[] { "--endpoint", "CABLE", "--detach" }, launched.ToArgs());
+        var parsed = HelperOptions.Parse(launched.ToArgs());
+        Assert.True(parsed.Detach);
+        Assert.Equal(launched, parsed);
+        // The launcher re-execs itself without --detach so the child runs for real.
+        var child = parsed with { Detach = false };
+        Assert.Equal(new[] { "--endpoint", "CABLE" }, child.ToArgs());
+        Assert.False(HelperOptions.Parse(child.ToArgs()).Detach);
+        Assert.Throws<ArgumentException>(() => HelperOptions.Parse(new[] { "--detach=yes" }));
+    }
+
     [Fact]
     public void Options_are_case_insensitive_and_help_is_recognised()
     {

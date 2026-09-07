@@ -36,6 +36,38 @@ internal static class Program
             return ExitOk;
         }
 
+        // [impl->REQ-SINK-LIFECYCLE]
+        // The mod launches us with --detach: we start the real Helper as our own child and exit
+        // at once, so the Helper's parent is this short-lived launcher, not the game. OBS's
+        // process-tree matching then cannot fold the Helper's audio into the game's capture.
+        if (options.Detach)
+        {
+            var self = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(self))
+            {
+                HelperLog.Write("Detach: cannot resolve own path; running attached instead.");
+            }
+            else
+            {
+                try
+                {
+                    var start = new System.Diagnostics.ProcessStartInfo(self)
+                    {
+                        UseShellExecute = false,
+                        WorkingDirectory = Path.GetDirectoryName(self) ?? Environment.CurrentDirectory,
+                    };
+                    foreach (var arg in (options with { Detach = false }).ToArgs()) start.ArgumentList.Add(arg);
+                    var child = System.Diagnostics.Process.Start(start);
+                    HelperLog.Write($"Detach: started pid {child?.Id}; launcher exiting.");
+                    return ExitOk;
+                }
+                catch (Exception e)
+                {
+                    HelperLog.Write($"Detach: could not start a detached copy ({e.Message}); running attached instead.");
+                }
+            }
+        }
+
         HelperLog.Write($"Starting: endpoint='{options.EndpointSetting}' tone={options.Tone} pipe={options.PipeName}");
 
         ApplicationConfiguration.Initialize();

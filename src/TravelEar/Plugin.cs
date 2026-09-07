@@ -60,7 +60,7 @@ public sealed class Plugin : BasePlugin
         }
 
         // Sink side first: the pump only ever waits for a Helper, so it can never block the game.
-        _pump = new SinkPump(TapFilter.Ring, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate);
+        _pump = new SinkPump(TapFilter.Ring, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate, () => Settings.Downmix.Value);
         _pump.Start();
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 

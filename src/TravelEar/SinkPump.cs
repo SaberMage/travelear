@@ -9,8 +9,10 @@ namespace TravelEar;
 /// that the Helper connects to as a client, fed with <see cref="SinkFrame"/>s on a dedicated
 /// thread. Pacing follows the audio thread's clock: the pump sends whatever the Tap has produced
 /// since the last tick instead of asking for a fixed amount, so it never pads with silence on its
-/// own. Every disconnect (Helper closed, never started) just re-arms the server; nothing here
-/// can reach gameplay or the game's audio (docs/KNOWN-HAZARDS.md 2.1).
+/// own. Every disconnect (Helper closed, never started) re-arms the server, no more often than
+/// every 5 s (<see cref="HelperLifecycle"/>, <c>REQ-SINK-LIFECYCLE</c>); nothing here can reach
+/// gameplay or the game's audio (docs/KNOWN-HAZARDS.md 2.1). With config <c>Downmix</c> on, each
+/// block is folded to mono before framing (<c>REQ-SINK-FORMAT</c>).
 /// </summary>
 internal sealed class SinkPump : IDisposable
 {
@@ -21,6 +23,8 @@ internal sealed class SinkPump : IDisposable
     private readonly VoiceRingBuffer _ring;
     private readonly Func<int> _channels;
     private readonly Func<int> _sampleRate;
+    private readonly Func<bool> _downmix;
+    private readonly HelperLifecycle _lifecycle = new();
     private readonly CancellationTokenSource _stop = new();
     private Thread _thread;
 
@@ -29,12 +33,15 @@ internal sealed class SinkPump : IDisposable
     public volatile bool Connected;
     public volatile string LastError;
 
-    public SinkPump(VoiceRingBuffer ring, Func<int> channels, Func<int> sampleRate)
+    public SinkPump(VoiceRingBuffer ring, Func<int> channels, Func<int> sampleRate, Func<bool> downmix = null)
     {
         _ring = ring;
         _channels = channels;
         _sampleRate = sampleRate;
+        _downmix = downmix ?? (() => false);
     }
+
+    private static double NowMs() => Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
 
     public void Start()
     {
@@ -53,6 +60,10 @@ internal sealed class SinkPump : IDisposable
             NamedPipeServerStream server = null;
             try
             {
+                // [impl->REQ-SINK-LIFECYCLE]
+                var delay = (int)_lifecycle.DelayBeforeArmMs(NowMs());
+                if (delay > 0 && token.WaitHandle.WaitOne(delay)) break;
+
                 server = new NamedPipeServerStream(HelperOptions.DefaultPipeName, PipeDirection.Out, 1,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
                 server.WaitForConnectionAsync(token).GetAwaiter().GetResult();
@@ -81,7 +92,18 @@ internal sealed class SinkPump : IDisposable
                     var count = frames * channels;
                     var samples = buffer.AsSpan(0, count);
                     _ring.Read(samples);
-                    var header = new SinkFrameHeader((ushort)channels, (uint)_sampleRate(), Stopwatch.GetTimestamp(), count);
+                    var captured = Stopwatch.GetTimestamp();
+
+                    // [impl->REQ-SINK-FORMAT]
+                    if (channels > 1 && _downmix())
+                    {
+                        Downmixer.ToMono(samples, channels, samples);
+                        samples = samples.Slice(0, frames);
+                        channels = 1;
+                        count = frames;
+                    }
+
+                    var header = new SinkFrameHeader((ushort)channels, (uint)_sampleRate(), captured, count);
                     SinkFrame.WriteTo(server, header, samples, ref scratch);
                     Interlocked.Increment(ref FramesSent);
                 }

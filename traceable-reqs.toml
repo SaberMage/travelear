@@ -91,12 +91,12 @@ required_stages = ["doc", "impl", "unit"]  # M1 T1: SinkEndpointSelector + tests
 [[requirements]]
 id = "REQ-SINK-LIFECYCLE"
 title = "The mod spawns the Helper once per session, retries the pipe every 5 s, and the Helper exits when the pipe closes"
-required_stages = []
+required_stages = ["doc", "impl", "unit"]  # M2 T3: HelperLifecycle policy + tests, --detach spawn, pump re-arm cadence; "int" once a cross-process harness exists
 
 [[requirements]]
 id = "REQ-SINK-FORMAT"
 title = "The Sink carries float32 48 kHz PCM with the Tap's channel count, or mono when Downmix is set"
-required_stages = []
+required_stages = ["doc", "impl", "unit"]  # M2 T3: Downmixer + tests, pump folds to mono under Sink.Downmix
 
 [[requirements]]
 id = "REQ-OFFSET-MEASURE"
@@ -120,7 +120,7 @@ required_stages = ["impl"]  # M1 T3: the Tap zeroes its block unconditionally; "
 [[requirements]]
 id = "REQ-HAZARD-NO-GAMEPLAY-IMPACT"
 title = "A missing Helper, missing OBS, or Sink failure never changes gameplay or what the local player hears"
-required_stages = []
+required_stages = ["impl", "unit"]  # M2 T3: failed spawn absorbed and never retried, re-arm cadence holds (HelperLifecycle tests)
 
 [[requirements]]
 id = "REQ-HAZARD-NO-PARTIAL-FIDELITY"

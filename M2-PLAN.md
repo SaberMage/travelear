@@ -144,6 +144,19 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   once per state change (`Transmit signal #n:` lines). Fail-open if the comms are missing or the
   read throws. Awaiting the operator's in-game run: expect the noise floor gone between words,
   onsets intact, and (a) to flip with speech.
+- **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
+  `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
+  Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged
+  `REQ-SINK-LIFECYCLE` and `REQ-HAZARD-NO-GAMEPLAY-IMPACT` unit. Core `Downmixer.ToMono`
+  (equal-weight average, in-place safe) + 7 tests; the pump folds each block under
+  `Sink.Downmix` and the header says 1 channel (`REQ-SINK-FORMAT`). Question 5 settled on the
+  plan's fallback rather than WMI: the Helper grew `--detach` (re-exec self without the flag,
+  exit), the mod launches it with the flag, so the surviving Helper's parent is the dead
+  launcher, not the game; no `System.Management` under the game's runtime to prove. The
+  launcher now goes through the policy object and logs one line per skip reason. Operator
+  check still owed: after a game launch, Task Manager shows the Helper outside the game's
+  tree, and OBS's game capture stays free of Local Voice with `SinkEndpoint` on the default
+  device. `HelperOptions` gained the flag with a round-trip test.
 
 ## Gate
 

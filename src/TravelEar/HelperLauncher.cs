@@ -4,14 +4,18 @@ using TravelEar.Core;
 namespace TravelEar;
 
 /// <summary>
-/// Starts the Helper once per game launch. M1 spike version: a plain <see cref="Process.Start(ProcessStartInfo)"/>;
-/// the design's out-of-tree spawn (WMI <c>Win32_Process.Create</c>) and the 5 s pipe retry policy
-/// belong to <c>REQ-SINK-LIFECYCLE</c>, which stays inactive until M2. A missing or failing Helper
-/// only produces a log line (docs/KNOWN-HAZARDS.md 2.1).
+/// Starts the Helper once per game launch (<c>REQ-SINK-LIFECYCLE</c>). The policy (spawn once,
+/// never respawn) lives in <see cref="HelperLifecycle"/>; this class only observes (config, file,
+/// running processes) and acts. The Helper is launched with <c>--detach</c>, so the process that
+/// stays up is a child of a launcher that exits at once, not of the game: OBS's process-tree
+/// matching then cannot fold the Helper's audio into the game's capture. A missing or failing
+/// Helper only produces a log line (docs/KNOWN-HAZARDS.md 2.1).
 /// </summary>
 internal static class HelperLauncher
 {
     public const string ProcessName = "TravelEar.Helper";
+
+    private static readonly HelperLifecycle Lifecycle = new();
 
     /// <summary>
     /// <c>BepInEx\TravelEar.Helper\TravelEar.Helper.exe</c>: beside, not inside, the plugins folder,
@@ -20,33 +24,44 @@ internal static class HelperLauncher
     public static string DefaultPath(string bepInExRoot) =>
         Path.Combine(bepInExRoot, "TravelEar.Helper", ProcessName + ".exe");
 
+    // [impl->REQ-SINK-LIFECYCLE]
     public static void TryLaunch(PluginConfig settings, string bepInExRoot)
     {
-        if (!settings.SpawnHelper.Value)
-        {
-            Plugin.Logger.LogInfo("Sink: SpawnHelper is off; start the Helper by hand.");
-            return;
-        }
-
         var path = string.IsNullOrWhiteSpace(settings.HelperPath.Value)
             ? DefaultPath(bepInExRoot)
             : settings.HelperPath.Value;
 
-        if (!File.Exists(path))
+        bool alreadyRunning;
+        try
         {
-            Plugin.Logger.LogWarning($"Sink: Helper not found at '{path}'. Start it by hand or set Sink.HelperPath.");
-            return;
+            alreadyRunning = Process.GetProcessesByName(ProcessName).Length > 0;
+        }
+        catch (Exception e)
+        {
+            Plugin.Logger.LogWarning($"Sink: could not list processes ({e.Message}); assuming no Helper is running.");
+            alreadyRunning = false;
+        }
+
+        var decision = Lifecycle.DecideSpawn(settings.SpawnHelper.Value, File.Exists(path), alreadyRunning);
+        switch (decision)
+        {
+            case SpawnDecision.SkipDisabled:
+                Plugin.Logger.LogInfo("Sink: SpawnHelper is off; start the Helper by hand.");
+                return;
+            case SpawnDecision.SkipMissing:
+                Plugin.Logger.LogWarning($"Sink: Helper not found at '{path}'. Start it by hand or set Sink.HelperPath.");
+                return;
+            case SpawnDecision.SkipAlreadyRunning:
+                Plugin.Logger.LogInfo("Sink: Helper is already running.");
+                return;
+            case SpawnDecision.SkipAlreadySpawned:
+                Plugin.Logger.LogInfo("Sink: Helper was already spawned this session; not respawning.");
+                return;
         }
 
         try
         {
-            if (Process.GetProcessesByName(ProcessName).Length > 0)
-            {
-                Plugin.Logger.LogInfo("Sink: Helper is already running.");
-                return;
-            }
-
-            var options = HelperOptions.Default with { EndpointSetting = settings.SinkEndpoint.Value ?? "" };
+            var options = HelperOptions.Default with { EndpointSetting = settings.SinkEndpoint.Value ?? "", Detach = true };
             var start = new ProcessStartInfo(path)
             {
                 UseShellExecute = false,
@@ -54,12 +69,14 @@ internal static class HelperLauncher
             };
             foreach (var arg in options.ToArgs()) start.ArgumentList.Add(arg);
 
-            var process = Process.Start(start);
-            Plugin.Logger.LogInfo($"Sink: Helper started (pid {process?.Id}) from '{path}' with args [{string.Join(" ", options.ToArgs())}].");
+            using var launcher = Process.Start(start);
+            Plugin.Logger.LogInfo($"Sink: Helper launcher started (pid {launcher?.Id}) from '{path}' with args [{string.Join(" ", options.ToArgs())}]; the Helper detaches from it.");
         }
         catch (Exception e)
         {
-            Plugin.Logger.LogWarning($"Sink: could not start the Helper: {e.Message}");
+            // [impl->REQ-HAZARD-NO-GAMEPLAY-IMPACT]
+            Lifecycle.RecordSpawnFailure();
+            Plugin.Logger.LogWarning($"Sink: could not start the Helper: {e.Message}. Start it by hand; the mod will not retry.");
         }
     }
 }

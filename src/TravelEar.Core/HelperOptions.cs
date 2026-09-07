@@ -8,17 +8,19 @@ namespace TravelEar.Core;
 /// <param name="Tone">Render a test tone instead of reading the pipe (spike S1 needs no game).</param>
 /// <param name="PipeName">Named pipe the mod serves Sink frames on.</param>
 /// <param name="ShowHelp"><c>--help</c> was given; print usage and exit.</param>
-public sealed record HelperOptions(string EndpointSetting, bool Tone, string PipeName, bool ShowHelp)
+/// <param name="Detach">Re-launch self without this flag and exit at once, so the real Helper's parent is this short-lived launcher rather than whoever started it (the game).</param>
+public sealed record HelperOptions(string EndpointSetting, bool Tone, string PipeName, bool ShowHelp, bool Detach = false)
 {
     public const string DefaultPipeName = "TravelEar.Sink";
 
     public static readonly HelperOptions Default = new("", false, DefaultPipeName, false);
 
     public const string Usage =
-        "TravelEar.Helper [--endpoint <substring>] [--tone] [--pipe <name>] [--help]\n" +
+        "TravelEar.Helper [--endpoint <substring>] [--tone] [--pipe <name>] [--detach] [--help]\n" +
         "  --endpoint <substring>  Render to the playback device whose name contains <substring> (empty = default device).\n" +
         "  --tone                  Render a 440 Hz test tone instead of reading the Sink pipe.\n" +
         "  --pipe <name>           Named pipe to read Sink frames from (default " + DefaultPipeName + ").\n" +
+        "  --detach                Start a second copy without this flag and exit, leaving it outside the caller's process tree.\n" +
         "  --help                  Show this text.";
 
     /// <summary>Builds the argument vector the mod passes when launching the Helper.</summary>
@@ -28,6 +30,7 @@ public sealed record HelperOptions(string EndpointSetting, bool Tone, string Pip
         if (!string.IsNullOrWhiteSpace(EndpointSetting)) { args.Add("--endpoint"); args.Add(EndpointSetting); }
         if (Tone) args.Add("--tone");
         if (PipeName != DefaultPipeName) { args.Add("--pipe"); args.Add(PipeName); }
+        if (Detach) args.Add("--detach");
         return args.ToArray();
     }
 
@@ -62,6 +65,10 @@ public sealed record HelperOptions(string EndpointSetting, bool Tone, string Pip
                 case "--tone":
                     if (inlineValue is not null) throw new ArgumentException("--tone takes no value.");
                     result = result with { Tone = true };
+                    break;
+                case "--detach":
+                    if (inlineValue is not null) throw new ArgumentException("--detach takes no value.");
+                    result = result with { Detach = true };
                     break;
                 case "--help":
                 case "-h":
