@@ -133,14 +133,17 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Encoder thread: decode with the game's decoder and push into the provider ring.</summary>
     private void OnFrameEncoded(int sequence, byte[] opus)
     {
+        var first = Interlocked.Read(ref _framesDecoded) == 0;
         try
         {
+            if (first) _log.LogInfo($"Local Voice: frame 1 step A, decoding {opus.Length} bytes on thread {Environment.CurrentManagedThreadId}.");
             var count = _decoder.Decode(opus, out var pcm);
+            if (first) _log.LogInfo($"Local Voice: frame 1 step B, decoded {count} samples.");
             if (count <= 0) return;
             _lastDecodedSamples = count;
             RoundTripProvider.Push(pcm);
-            if (Interlocked.Increment(ref _framesDecoded) == 1)
-                _log.LogInfo($"Local Voice: first frame decoded, {count} samples from {opus.Length} bytes.");
+            if (first) _log.LogInfo($"Local Voice: frame 1 step C, pushed; provider write head {RoundTripProvider.Provider?.CachedVoiceWriteHead}.");
+            Interlocked.Increment(ref _framesDecoded);
         }
         catch (Exception e)
         {

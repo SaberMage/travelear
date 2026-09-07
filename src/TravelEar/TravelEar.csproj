@@ -56,11 +56,12 @@
   <!-- Copy the plugin into the game for local testing: dotnet build -p:DeployToGame=true -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(DeployToGame)' == 'true'">
     <ItemGroup>
-      <!-- Helper build output (self-contained win-x64), if it has been built; the plugin spawns it from plugins\TravelEar\Helper. -->
+      <!-- Helper build output (self-contained win-x64), if it has been built. It lives OUTSIDE BepInEx\plugins:
+           BepInEx examines every DLL under plugins as a plugin candidate (260 files, slow load). -->
       <HelperFiles Include="..\TravelEar.Helper\bin\$(Configuration)\net8.0-windows\win-x64\**\*" />
     </ItemGroup>
     <Copy SourceFiles="$(TargetPath);$(TargetDir)TravelEar.Core.dll" DestinationFolder="$(GameDir)\BepInEx\plugins\TravelEar" />
-    <Copy SourceFiles="@(HelperFiles)" DestinationFiles="@(HelperFiles->'$(GameDir)\BepInEx\plugins\TravelEar\Helper\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(HelperFiles)' != ''" />
+    <Copy SourceFiles="@(HelperFiles)" DestinationFiles="@(HelperFiles->'$(GameDir)\BepInEx\TravelEar.Helper\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(HelperFiles)' != ''" />
   </Target>
 
 </Project>

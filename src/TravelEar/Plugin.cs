@@ -60,7 +60,7 @@ public sealed class Plugin : BasePlugin
         // Sink side first: the pump only ever waits for a Helper, so it can never block the game.
         _pump = new SinkPump(TapFilter.Ring, () => TapFilter.Channels, () => LocalVoiceRenderer.SampleRate);
         _pump.Start();
-        HelperLauncher.TryLaunch(Settings, Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".");
+        HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
         _renderer = new LocalVoiceRenderer(Logger, _pump);
@@ -97,7 +97,7 @@ internal sealed class PluginConfig
         SpawnHelper = file.Bind("Sink", "SpawnHelper", true,
             "Launch the TravelEar Helper process automatically when the game starts.");
         HelperPath = file.Bind("Sink", "HelperPath", "",
-            "Full path to TravelEar.Helper.exe. Empty = the Helper folder next to the plugin.");
+            @"Full path to TravelEar.Helper.exe. Empty = BepInEx\TravelEar.Helper\TravelEar.Helper.exe.");
         SinkEndpoint = file.Bind("Sink", "SinkEndpoint", "",
             "Substring of the Windows playback device the Helper renders to. Empty = system default device.");
         MixerStage = file.Bind("Fidelity", "MixerStage", true,

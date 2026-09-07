@@ -13,10 +13,14 @@ internal static class HelperLauncher
 {
     public const string ProcessName = "TravelEar.Helper";
 
-    public static string DefaultPath(string pluginDirectory) =>
-        Path.Combine(pluginDirectory, "Helper", ProcessName + ".exe");
+    /// <summary>
+    /// <c>BepInEx\TravelEar.Helper\TravelEar.Helper.exe</c>: beside, not inside, the plugins folder,
+    /// because BepInEx examines every DLL under <c>plugins</c> as a plugin candidate.
+    /// </summary>
+    public static string DefaultPath(string bepInExRoot) =>
+        Path.Combine(bepInExRoot, "TravelEar.Helper", ProcessName + ".exe");
 
-    public static void TryLaunch(PluginConfig settings, string pluginDirectory)
+    public static void TryLaunch(PluginConfig settings, string bepInExRoot)
     {
         if (!settings.SpawnHelper.Value)
         {
@@ -25,7 +29,7 @@ internal static class HelperLauncher
         }
 
         var path = string.IsNullOrWhiteSpace(settings.HelperPath.Value)
-            ? DefaultPath(pluginDirectory)
+            ? DefaultPath(bepInExRoot)
             : settings.HelperPath.Value;
 
         if (!File.Exists(path))
@@ -46,7 +50,7 @@ internal static class HelperLauncher
             var start = new ProcessStartInfo(path)
             {
                 UseShellExecute = false,
-                WorkingDirectory = Path.GetDirectoryName(path) ?? pluginDirectory,
+                WorkingDirectory = Path.GetDirectoryName(path) ?? bepInExRoot,
             };
             foreach (var arg in options.ToArgs()) start.ArgumentList.Add(arg);
 
