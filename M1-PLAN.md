@@ -36,7 +36,8 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
    interface from managed code? (S3.) Preferred answer: instantiate the game's own
    `LocalVoiceProvider`, unsubscribe it from the mic, and push decoded PCM through its public
    `ReceiveMicrophoneData(ArraySegment<float>, WaveFormat)`. Fallback: Il2CppInterop interface
-   injection.
+   injection. **Answered YES, 2026-09-07:** the preferred answer worked as stated (mic subscription
+   skipped by a Harmony prefix on `LocalVoiceProvider.Start`); recorded in ADR-0003.
 
 ## Tasks
 
@@ -234,6 +235,29 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
   6. Run 5 (`4e3cbd2`): operator confirmed the emitter offset follows the view. **T3 done.**
      Open items carried to M2: transmit gate (noise floor), remaining Filter Stage effects,
      Offset measurement, lag margin tuning (ring lag steady ~150-180 ms with the mic always on).
+
+- **T4 done** (2026-09-07). `docs/DESIGN.md` round-trip provider, renderer, Self-Ear and
+  Sink/Helper sections rewritten to match what was built; ADR-0003 records the provider /
+  VoicePlayer decision and its interop consequences; `REQ-VOICE-CONTINUOUS` raised to doc+impl.
+  `M2-PLAN.md` written just-in-time.
+
+## M1 outcome
+
+All three spikes answered YES; the design in `docs/DESIGN.md` holds end to end. Local Voice is
+audible through the Helper, pans with the view, and lags the mic by the game's own mic-to-encode
+path plus ~150-180 ms of provider ring.
+
+- Activated requirements at M1 close: `REQ-VOICE-OUTBOUND-TAP` doc+impl+unit;
+  `REQ-VOICE-ROUNDTRIP` doc+impl; `REQ-VOICE-CONTINUOUS` doc+impl; `REQ-EAR-SELF` doc+impl;
+  `REQ-TAP-DIVERT` doc+impl+unit; `REQ-SINK-HELPER-PROCESS` doc+impl;
+  `REQ-SINK-ENDPOINT-CONFIG` doc+impl+unit; `REQ-HAZARD-NO-GAME-AUDIO-LEAK` impl.
+- Decisions recorded: ADR-0001 consequences (OBS captures a non-default endpoint), ADR-0003
+  (game `LocalVoiceProvider` + `VoicePlayer`, not a managed provider).
+- Standing rules learned: hook non-generic methods; never `Object.FindObjectOfType` (stripped);
+  build `Nullable<struct proxy>` by memory copy; Helper never under `plugins`.
+- Carried to M2 (`M2-PLAN.md`): transmit gate (the parked noise floor), the remote path's
+  Filter Stage effects on the Clean path, Offset measurement and lag margin, Helper lifecycle,
+  hazard tests.
 
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 

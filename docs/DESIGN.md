@@ -14,21 +14,21 @@ mic ─► Dissonance preprocess ─► Opus encode ─► Mirror send ───
                                                   ▼ (Harmony postfix, copy bytes)
                                         Outbound Voice tap
                                                   │
-                                                  ▼ Dissonance OpusDecoder
-                                        round-trip PCM provider (IVoiceDataProvider)
+                                                  ▼ game OpusDecoder (encoder thread)
+                                   round-trip provider (mod-owned game LocalVoiceProvider, mic skipped)
                                                   │
                                                   ▼
-                                   Local Voice renderer (mod-owned GameObject)
-                                   ├─ game VoicePlayer (Clean | Megaphone, follows held item)
-                                   ├─ game VoiceMakeupGain
-                                   ├─ Self-Ear curve values (distance 0, angle 0, occlusion 0)
-                                   └─ Tap: last IAudioFilter copies buffer, then zeroes it
+                                   Local Voice renderer (mod-owned GameObject under the listener)
+                                   ├─ game VoicePlayer, Clean (Megaphone when held: later)
+                                   ├─ emitter SelfEarForwardMeters ahead of the AudioListener
+                                   ├─ remote-path processing: makeup gain, compressor, EQ, curves (M2)
+                                   └─ Tap: postfix on AudioFilterMixer.OnAudioFilterRead copies, then zeroes
                                                   │
                                                   ▼
                                    Mixer Stage re-synthesis (mod DSP, driven by AudioMixer.GetFloat)
                                                   │
                                                   ▼ named pipe, float32 48 kHz, N channels
-                                          Helper process (WASAPI render)
+                                   Helper process (BepInEx\TravelEar.Helper, WASAPI render)
                                                   │
                                                   ▼
                             OBS Application Audio Capture  →  own track / monitoring
@@ -46,17 +46,22 @@ Settled by M1 spike S2 (five in-game runs): a host with no listeners never build
 <!-- [doc->REQ-VOICE-ROUNDTRIP] -->
 ### Round-trip provider
 
-Implements the game's `IVoiceDataProvider` ring-buffer contract (the same interface `SamplePlaybackComponent` and `LocalVoiceProvider` implement) so any game `VoicePlayer` can consume it unchanged. Emits silence when no packets arrive, so the stream never gaps.
+A mod-owned instance of the game's own `LocalVoiceProvider` ([ADR-0003](./adr/0003-game-voiceplayer-and-local-voice-provider.md)). It already implements the `IVoiceDataProvider` ring contract every game `VoicePlayer` consumes, so no IL2CPP interface is implemented from managed code. It lives on the renderer's GameObject; a Harmony prefix on `LocalVoiceProvider.Start`, keyed on that instance's pointer, skips the mic subscription for it alone, so it never carries raw mic audio and the game's own provider is untouched. Tapped frames are decoded on the encoder thread with the game's `OpusDecoder` (48 kHz mono, FEC on, 2880-sample frames) and pushed through the provider's public `IMicrophoneSubscriber.ReceiveMicrophoneData` proxy exactly as the mic feed would be. The provider duplicates mono to the DSP channel count and does not resample; the mod warns if the DSP rate is not 48 kHz.
+
+Read-head discipline: the game syncs a `VoicePlayer`'s read head to its provider once at enable time, so with talk bursts the phase between the two is random (up to a full ring, 341 ms of pure latency). The renderer resyncs the read head 1.5 frames behind the write head at each burst start, and again whenever the lag drifts past 4 frames or under a quarter frame mid-burst. Ring lag then sits steady around 150-180 ms.
+
+<!-- [doc->REQ-VOICE-CONTINUOUS] -->
+Continuity: Outbound Voice exists only while the game transmits, but a `VoicePlayer` reads its provider's ring forever. Between bursts the renderer pushes zero frames from the main thread so the write head stays ahead of the read head; without this the player loops the last ring's worth of the burst, mostly mic noise floor (M1 T3 runs 2-3). Silence is therefore what the Sink carries whenever no packets arrive, from game launch on. In practice the encoder rarely stops: push-to-talk defaults to toggle-on and the game's "Self Echo" room channel is always open, so the mic noise floor between words is rendered too. Limiting Local Voice to what peers actually receive (a transmit gate on the voice-activation channel) is an M2 item.
 
 ### Local Voice renderer
 
-A mod-owned GameObject holding a game `VoicePlayer` whose `PlayerType` follows the local player's held item (`Clean` when nothing relevant is held, `Megaphone` when the megaphone is held). Fed by the round-trip provider, never by `LocalVoiceProvider`. The game's own local self-voice `VoicePlayer` instances are left untouched.
+A mod-owned GameObject (`TravelEar.LocalVoice`, built on the main thread once `GlobalAudioEffects` and `AudioManager` exist) holding the round-trip provider and a game `VoicePlayer` with `PlayerType = Clean`, `Cue` = the last entry of `GlobalAudioEffects.Instance.VoiceCues` (the cue kind the game hands remote players, so spatial settings, attenuation and RTPCs match), `Volume` 1, and the provider assigned before activation. The `VoicePlayer` then does what it does for the game's own voices: plays the cue through `AudioPlayHelper.Play` with a constant-1.0 streaming clip, puts itself at index 0 of the pooled `AudioSourceController`'s filter list, switches the source's `AudioFilterMixer` into synthesizer mode (so the mixer multiplies the voice by the source's spatial gain), and re-plays itself if the pooled controller is reclaimed. `PlayerType` following the held item (`Megaphone`) is a later milestone. The game's own self-voice `VoicePlayer` instances are left untouched.
 
 <!-- [doc->REQ-TAP-DIVERT] -->
-The Tap sits at the end of the Filter Stage: a Harmony postfix on the source's `AudioFilterMixer.OnAudioFilterRead`, filtered to the renderer's own mixer. It copies the processed buffer into a lock-free ring for the Sink and then zeroes the buffer in place, so the game's mixer receives silence from this source. The zeroing is unconditional: a full ring drops samples, it never lets audio through.
+The Tap sits at the end of the Filter Stage: a Harmony postfix on `AudioFilterMixer.OnAudioFilterRead`, filtered to the renderer's own mixer by object pointer; the renderer re-arms it whenever the controller's mixer changes. It copies the processed buffer into a lock-free ring for the Sink and then zeroes the buffer in place, so the game's mixer receives silence from this source. The zeroing is unconditional: a full ring drops samples, it never lets audio through. It runs on Unity's audio thread: no allocation, no logging.
 
 <!-- [doc->REQ-EAR-SELF] -->
-Self-Ear parameters: the emitter (the pooled `AudioSource` the game's `VoicePlayer` plays through) is parented rigidly to the `AudioListener` transform, a short distance straight ahead (config `SelfEarForwardMeters`, default 3 in / 0.0762 m), with the controller's own follow-transform logic cleared. Rigid parenting is required: the game's follow logic updates the source one frame behind the camera, which flips left/right while strafing; and a source at the exact listener position produces stereo artifacts (M1 T3 run 2). Evaluate the game's attenuation, filter-distance, filter-angle, and spatial curves at that offset, occlusion 0, and read the local player's own `outdoorness` and `echoAmount`. Apply `VoiceMakeupGain` exactly as `PlayerVoicePlaybackControl.Update` does for a remote player.
+Self-Ear parameters: the emitter (the pooled `AudioSource` the `VoicePlayer` plays through) sits a short distance straight ahead of the `AudioListener` along the view axis (config `SelfEarForwardMeters`, default 3 in / 0.0762 m). The renderer's object and the pooled source are both parented to an anchor at that same local offset, and the controller keeps following the renderer's object: its per-frame position write then resolves to the exact local offset whatever anchor pose it read, so the audio thread always sees the current view with no lag. The anchor is the camera above the listener when one exists, else the listener object itself (`Camera.main` is null in this game; the listener comes from `AudioManager.Instance.ListenerController._listener`, never `Object.FindObjectOfType`, which is stripped). Rigid parenting is required: the game's follow logic alone updates the source one frame behind the camera, which flips left/right while strafing; a source at the exact listener position produces stereo artifacts; and clearing the follow target drops the source at the world position it was played at (M1 T3 runs 2-5). The pooled source's original parent is restored when the controller goes away. Still to do (M2): evaluate the game's attenuation, filter-distance, filter-angle, and spatial curves at that offset, occlusion 0, read the local player's own `outdoorness` and `echoAmount`, and apply `VoiceMakeupGain`, the `SamplePlaybackComponent` compressor and soft clip, and the `PlayerVoicePlaybackControl` EQ exactly as the remote path does. The Clean `LocalVoiceProvider` path skips all of these today.
 
 Self-Ear geometry (operator note, 2026-09-07, for later experimentation): a person does not hear their own voice on-axis. The voice leaves at the edges of the mouth and through the cheeks, so from the speaker's own ears it radiates roughly perpendicular, as a cone of about 160-170 degrees whose apex sits 2-3 inches in front of the ears. A peer voice pointed straight at the listener sits at angle 0 on the game's filter-angle curve; the Self-Ear should therefore probably sit off-axis on that curve (some extra `High{n}` roll-off relative to a peer facing you) rather than at angle 0. Treat the angle-0 value above as the v1 starting point and calibrate the off-axis amount by ear against a second-client recording.
 
@@ -68,9 +73,9 @@ Reads the same per-channel mixer floats the game writes (`Dry{n}`, `High{n}`, `R
 <!-- [doc->REQ-SINK-ENDPOINT-CONFIG] -->
 ### Sink transport and Helper
 
-Mod side: named pipe server `TravelEar.Sink`, frames of float32 interleaved PCM at 48 kHz with a small header (channel count, capture timestamp). Helper side: .NET 8 self-contained WinExe, minimized window titled "TravelEar for Big Walk", NAudio `WasapiOut` on a dedicated thread to the endpoint matching config `SinkEndpoint` (empty = system default). Helper writes render timestamps back on the pipe so the mod can compute Offset.
+Mod side: named pipe server `TravelEar.Sink`, frames of float32 interleaved PCM at the DSP rate with a small header (channel count, sample rate, capture timestamp, sample count); the pump sends whatever the Tap produced per 5 ms tick and never pads on its own. Helper side: .NET 8 self-contained WinExe, minimized window titled "TravelEar for Big Walk", NAudio `WasapiOut` on a dedicated thread to the endpoint matching config `SinkEndpoint` (empty = system default, which is audible); it trims its backlog to 30 ms whenever it exceeds 80 ms. Helper writes render timestamps back on the pipe so the mod can compute Offset (M2).
 
-Lifecycle: mod spawns the Helper once per session outside the game's process tree (WMI `Win32_Process.Create`), retries the pipe every 5 s, never respawns in a loop. Helper exits when the pipe closes. Manual launch is supported.
+Lifecycle: the Helper ships at `BepInEx\TravelEar.Helper\TravelEar.Helper.exe`, beside and not inside `plugins`, because BepInEx examines every DLL under `plugins` as a plugin candidate. M1 spawns it with a plain `Process.Start` (config `SpawnHelper`, `HelperPath`); the design target, spawn once per session outside the game's process tree (WMI `Win32_Process.Create`), retry the pipe every 5 s, never respawn in a loop, is `REQ-SINK-LIFECYCLE` (M2). Helper exits when the pipe closes. Manual launch is supported.
 
 ### Config and settings UI
 

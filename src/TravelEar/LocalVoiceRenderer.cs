@@ -24,10 +24,12 @@ namespace TravelEar;
 /// <para>
 /// Emitter placement (M1 T3 run 2): letting the pooled source follow our transform through the
 /// game's own follow logic lags one frame behind the camera, which flips left/right while
-/// strafing, and a source at the exact listener position produces stereo artifacts. The source
-/// transform is therefore parented rigidly to the <c>AudioListener</c> with a forward offset
+/// strafing, and a source at the exact listener position produces stereo artifacts. Our object
+/// and the pooled source are therefore both parented to the listener's anchor at a forward offset
 /// (config <c>SelfEarForwardMeters</c>, default 3 in, the operator's Self-Ear note in
-/// docs/DESIGN.md) and the controller's follow target is cleared.
+/// docs/DESIGN.md) and the controller keeps following our object, so its per-frame write resolves
+/// to that exact local offset (run 5). Clearing the follow target instead drops the source at the
+/// world position it was played at (run 4).
 /// </para>
 /// </summary>
 internal sealed class LocalVoiceRenderer
