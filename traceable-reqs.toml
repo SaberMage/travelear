@@ -20,8 +20,12 @@
 [scan]
 # Every evidence location. A missing root makes evidence SILENTLY vanish from the trace —
 # audit this whenever a new evidence dir appears.
-# Add "tests" here the moment the first test project lands (a nonexistent root is a manifest_error).
-roots = ["src", "docs", "scripts", "CONTEXT.md", "README.md"]
+# "tests" was added with the first test project (M1 T0); a nonexistent root is a manifest_error.
+roots = ["src", "tests", "docs", "scripts", "CONTEXT.md", "README.md"]
+
+[scan.extensions]
+# C# is not a built-in scanner language; without this mapping every .cs tag silently vanishes.
+".cs" = "c_like"
 
 [policy]
 # Default policy applied at activation: doc + impl + unit. The Sink/Helper reqs cross a
@@ -33,7 +37,7 @@ required_stages = []
 [[requirements]]
 id = "REQ-VOICE-OUTBOUND-TAP"
 title = "The mod captures the exact Opus packets the game sends to peers (Outbound Voice)"
-required_stages = ["doc"]  # M1: doc now; impl/unit added as evidence lands
+required_stages = ["doc", "impl", "unit"]  # M1 T0: frame parser + tests; T2 adds the in-game patch
 
 [[requirements]]
 id = "REQ-VOICE-ROUNDTRIP"

@@ -33,6 +33,9 @@ silently regress.
 6. **Scan roots stay honest.** `[scan].roots` includes every evidence location (your source,
    tests, docs, and later your CI workflows and scripts). Audit roots whenever a new evidence
    dir appears — a missing root makes evidence *silently* vanish from the trace.
+7. **C# is mapped explicitly.** The scanner has no built-in `.cs` language; the manifest maps
+   `".cs" = "c_like"` under `[scan.extensions]`. Without it every `.cs` tag silently vanishes
+   (the same trap as a missing root). Keep the mapping when editing `[scan]`.
 
 ### Stages
 

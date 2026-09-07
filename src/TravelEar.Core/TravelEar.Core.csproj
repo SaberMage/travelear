@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>TravelEar.Core</AssemblyName>
+    <RootNamespace>TravelEar.Core</RootNamespace>
+    <Description>Game-independent TravelEar code: Dissonance VoiceData frame parser, voice ring buffer, Sink pipe framing.</Description>
+    <!-- Pure library: no BepInEx, no Unity, no game references. Shared by the plugin (net6.0) and the Helper (net8.0). -->
+  </PropertyGroup>
+
+</Project>

@@ -11,8 +11,8 @@ Every gate is a script with a binary pass / fail — no judgment, no model:
 
 1. **Build** — `dotnet build TravelEar.sln -c Release` compiles the plugin against the game's
    proxy assemblies and the Helper.
-2. **Unit tests** — `dotnet test` on `tests/` (skipped with a notice until the first test
-   project exists).
+2. **Unit tests** — `dotnet test` on `tests/TravelEar.Tests` (xunit, covers the pure
+   `TravelEar.Core` library).
 3. **`traceable-reqs check`** — requirement coverage gate; exit-1 fails (see
    `docs/TRACEABILITY.md`).
 4. **Docs build** — `mdbook build docs-site` must succeed; the site is read in-repo and built
