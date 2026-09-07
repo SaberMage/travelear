@@ -36,16 +36,18 @@ internal static class TransmitSignal
     private static readonly StringBuilder Rooms = new();
     private static readonly StringBuilder Transmitting = new();
     private static readonly StringBuilder Players = new();
+    private static readonly StringBuilder Local = new();
 
     public readonly struct Sample
     {
-        public Sample(bool available, bool peersReceive, string rooms, string triggersTransmitting, string playerChannels)
+        public Sample(bool available, bool peersReceive, string rooms, string triggers, string playerChannels, string local)
         {
             Available = available;
             PeersReceive = peersReceive;
             RoomsText = rooms;
-            TriggersText = triggersTransmitting;
+            TriggersText = triggers;
             PlayersText = playerChannels;
+            LocalText = local;
         }
 
         /// <summary>False until the world and its DissonanceComms exist, or when the read failed.</summary>
@@ -58,10 +60,13 @@ internal static class TransmitSignal
         public string TriggersText { get; }
         public string PlayersText { get; }
 
+        /// <summary>Probe: the comms mute flags and the local player's own speaking state.</summary>
+        public string LocalText { get; }
+
         /// <summary>One line for the state-change log; equal strings mean an unchanged state.</summary>
         public string Describe() =>
             Available
-                ? $"rooms=[{RoomsText}] triggersTransmitting=[{TriggersText}] playerChannels=[{PlayersText}] -> gate {(PeersReceive ? "OPEN" : "closed")}"
+                ? $"rooms=[{RoomsText}] triggers=[{TriggersText}] playerChannels=[{PlayersText}] local=[{LocalText}] -> gate {(PeersReceive ? "OPEN" : "closed")}"
                 : "unavailable (no DissonanceComms yet) -> gate OPEN (fail open)";
     }
 
@@ -120,6 +125,9 @@ internal static class TransmitSignal
                 }
             }
 
+            // Probe: every tracked trigger, as Room(Mode) plus flags: '*' transmitting, 'M' muted,
+            // 'V' the trigger's own VAD says speaking. A trigger that never shows '*' while 'V' is
+            // set is being held shut by something other than voice activity.
             Transmitting.Clear();
             for (var i = Triggers.Count - 1; i >= 0; i--)
             {
@@ -129,12 +137,20 @@ internal static class TransmitSignal
                     Triggers.RemoveAt(i);
                     continue;
                 }
-                if (!trigger.IsTransmitting) continue;
                 if (Transmitting.Length > 0) Transmitting.Append(", ");
                 Transmitting.Append(trigger.RoomName).Append('(').Append(trigger.Mode).Append(')');
+                if (trigger.IsTransmitting) Transmitting.Append('*');
+                if (trigger.IsMuted) Transmitting.Append('M');
+                if (trigger._isVadSpeaking) Transmitting.Append('V');
             }
 
-            return new Sample(true, peersReceive, Rooms.ToString(), Transmitting.ToString(), Players.ToString());
+            Local.Clear();
+            Local.Append("commsMuted ").Append(comms.IsMuted);
+            var localName = comms.LocalPlayerName;
+            var localState = localName is null ? null : comms.FindPlayer(localName);
+            Local.Append(", speaking ").Append(localState is null ? "n/a" : localState.IsSpeaking.ToString());
+
+            return new Sample(true, peersReceive, Rooms.ToString(), Transmitting.ToString(), Players.ToString(), Local.ToString());
         }
         catch (Exception e)
         {

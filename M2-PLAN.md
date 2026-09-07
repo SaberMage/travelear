@@ -144,6 +144,23 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   once per state change (`Transmit signal #n:` lines). Fail-open if the comms are missing or the
   read throws. Awaiting the operator's in-game run: expect the noise floor gone between words,
   onsets intact, and (a) to flip with speech.
+- **M2 run 1** (2026-09-07, operator solo run on `7a541c3`): the gate stayed closed for the
+  whole session, so Local Voice was silent and checks 1-3 could not be judged. Probe lines:
+  `rooms=[Echo] triggersTransmitting=[Echo(Open)] playerChannels=[]` from world load to exit,
+  3 signal changes all run, 7280 frames encoded and every one silenced, no `Offset:` average
+  (silence pushes carry no stamp, so no report; by design). No "read failed", no warnings, no
+  errors. The GhostRoom (voice-activation) channel that M1 run 4 saw open with speech never
+  opened, so by the run-4 finding peers would have received nothing either: the gate did what
+  it says, on a session where the game was not transmitting. Why GhostRoom never opened is the
+  open point: suspect the in-game voice toggle (M1 run 4 asked the operator to press it; its
+  state may persist), else a VAD or trigger condition the probe could not see. Probe widened
+  for run 2: every tracked trigger with `*` transmitting / `M` muted / `V` VAD-speaking, plus
+  `DissonanceComms.IsMuted` and the local player's `IsSpeaking`. Check 4 (Helper outside the
+  game's process tree) **passed**; OBS captured no audio from the Helper window, expected with
+  Local Voice silent, to be re-judged in run 2. Operator's separate finding: the "noise floor"
+  is analog line noise that tracks the game rendering and stays audible with the game's audio
+  muted at the mixer, so it is not Local Voice; the transmit gate remains a fidelity item
+  (peers do not hear the Self Echo room), not a noise fix.
 - **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
   `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
   Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged

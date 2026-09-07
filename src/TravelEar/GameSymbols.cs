@@ -83,6 +83,13 @@ internal static class GameSymbols
         Property(missing, typeof(VoiceBroadcastTrigger), "IsTransmitting");
         Property(missing, typeof(VoiceBroadcastTrigger), "RoomName");
         Property(missing, typeof(VoiceBroadcastTrigger), "Mode");
+        // Probe only (M2 T0 run 2; remove with the probe).
+        Property(missing, typeof(VoiceBroadcastTrigger), "IsMuted");
+        Property(missing, typeof(VoiceBroadcastTrigger), "_isVadSpeaking");
+        Property(missing, typeof(DissonanceComms), "IsMuted");
+        Property(missing, typeof(DissonanceComms), "LocalPlayerName");
+        Method(missing, typeof(DissonanceComms), "FindPlayer", typeof(string));
+        Property(missing, typeof(VoicePlayerState), "IsSpeaking");
 
         // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
         IsBound = missing.Complete(out var report);
