@@ -231,6 +231,10 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
      fidelity item. **Operator: park the noise floor until the remaining Filter Stage effects
      (SamplePlaybackComponent compressor/soft clip, VoiceMakeupGain, ARV gating, EQ) are in.**
 
+  6. Run 5 (`4e3cbd2`): operator confirmed the emitter offset follows the view. **T3 done.**
+     Open items carried to M2: transmit gate (noise floor), remaining Filter Stage effects,
+     Offset measurement, lag margin tuning (ring lag steady ~150-180 ms with the mic always on).
+
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 
 - `VoicePlayer : MonoBehaviour` is itself the `IAudioFilter` (`ProcessSamples(ref
