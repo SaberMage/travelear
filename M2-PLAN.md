@@ -256,6 +256,24 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   counter flat after start-up; a stall longer than the floor still pads, by design (the
   alternative is unbounded latency). Operator check owed (run 6): no crackle; Helper.log
   underruns flat after the first line; `Offset:` plausible; Helper on Aux Input.
+- **M2 run 6** (2026-09-07, operator solo run on `1ffc8c2`, OBS recording
+  `C:\Users\decid\Videos\2026-09-07 04-59-15.mkv`): Helper on `VoiceMeeter Aux Input`, prime
+  in effect: underruns 0 through the first 50 s (run 5 had 4 at start-up), then 2 in the
+  05:00:08 window and 4 in the 05:00:38 window, which is 1:20 of the recording, where the
+  operator heard crackle again; the game log has one `lag 23360 samples` (243 ms) resync at
+  the same point. Operator confirmed run 5's burst was in the game-audio-only track too. So
+  the residual is the game's own audio thread stalling ~250 ms about 80 s into a session: the
+  game's output glitches, our VoicePlayer read head falls behind and resyncs, the pipe pauses
+  past the 100 ms floor and the Helper pads. Nothing in the mod's path causes it and only a
+  ~300 ms floor would hide it (Offset +200 ms), which is the wrong trade. Peers do NOT hear
+  that stall (the encoder runs on the mic thread, not Unity's audio thread), so Local Voice
+  is now slightly less faithful than a peer at those moments; the VoicePlayer path is only a
+  DSP host for us (the tap zeroes the game copy), which makes feeding the Sink from the
+  encoder thread and re-synthesizing what the VoicePlayer path contributes an M3 design
+  question (it would also drop ~150-200 ms of Offset and the read-head discipline). `Offset:`
+  321-358 ms averages. **M2 closed:** the four owed checks cleared in run 3; the debris was
+  the Helper's jitter budget (fixed twice, band + prime) plus the gate's hard edges (fixed,
+  channel fade); what is left is the game's.
 - **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
   `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
   Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged
