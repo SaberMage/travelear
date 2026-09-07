@@ -25,6 +25,8 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
 
 1. Does OBS process-loopback capture a stream the Helper renders to a **non-default** endpoint?
    (S1.) If not, the silent-Sink story becomes "OBS Audio Input Capture on a cable endpoint".
+   **Answered YES, 2026-09-07:** operator ran `--tone --endpoint "VoiceMeeter Aux"` with an
+   OBS Application Audio Capture on the Helper window; the meter moved. Recorded in ADR-0001.
 2. Does a Harmony postfix on `MirrorIgnoranceClient.SendUnreliable(ArraySegment<byte>)` fire
    under IL2CPP for the host's own packets, and does the Dissonance VoiceData frame parse as
    documented? (S2.)
@@ -99,8 +101,8 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
   0 ok / 1 bad args / 2 no endpoint / 3 audio failure, log at `%LOCALAPPDATA%\TravelEar\Helper.log`.
   Smoke-tested without OBS: unknown `--endpoint` exits 2 and lists devices; a scripted pipe
   server sending 100 silent frames to the VoiceMeeter Aux endpoint renders and the Helper exits 0
-  when the pipe closes. **Open question 1 (OBS process capture on a non-default endpoint) still
-  needs the operator** — see T1 verification steps.
+  when the pipe closes. Open question 1 answered YES by the operator (OBS meter moves on a
+  non-default endpoint). **T1 done.**
 
 ## Gate
 

@@ -31,8 +31,9 @@ Rejected: in-process WASAPI render to a cable endpoint as the default path.
   "TravelEar for Big Walk" so OBS can enumerate it.
 - Rendering to the system default device is audible; users who want silence pick an unused
   endpoint via `SinkEndpoint`.
-- Open verification: OBS process-loopback must capture streams rendered to a non-default
-  endpoint. If it does not, the fallback is OBS Audio Input Capture on a cable endpoint, with no
-  Helper code change.
+- Verified 2026-09-07 (M1 spike S1): OBS Application Audio Capture captures the Helper's
+  stream when it renders to a non-default endpoint (tested with `--tone --endpoint
+  "VoiceMeeter Aux"`; the OBS meter moved). The silent-Sink story therefore stands as designed;
+  the cable-endpoint fallback is not needed.
 - The Helper is a second deliverable (self-contained .NET 8 WinExe) with its own lifecycle
   requirements (`REQ-SINK-*`).
