@@ -14,8 +14,9 @@ version becomes that GitHub Release's body verbatim.
   and reverb are not applied yet, and the mic noise floor between words is audible.
 - M2 T0: transmit gate. Local Voice is rendered only while peers would receive it (not muted,
   and the game's voice activation hears speech or a radio/megaphone room is open), so the mic
-  noise floor between words no longer reaches the Helper. `Fidelity.TransmitGate` turns it off
-  for comparison.
+  noise floor between words no longer reaches the Helper. The gate opens and closes with the
+  game's own channel fade rather than a cut (`Fidelity.TransmitFadeOutMs` overrides the
+  fade-out). `Fidelity.TransmitGate` turns it off for comparison.
 - M2 T3: Helper lifecycle and Sink format. The Helper is spawned once per game launch, outside
   the game's process tree (so OBS cannot fold it into the game's capture), and never respawned;
   the Sink pipe re-arms no more often than every 5 s. `Sink.Downmix` now works: Local Voice is

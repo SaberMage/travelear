@@ -57,6 +57,10 @@ internal sealed class LocalVoiceRenderer
     private readonly float _forwardMeters;
     private readonly bool _gateEnabled;
     private readonly TransmitGate _gate = new();
+    private readonly TransmitFader _fader = new(0, 0); // a hard gate until the game's fade is read
+    private readonly float _fadeOutOverrideMs;
+    private bool _fadeConfigured;
+    private bool _reportedFadeError;
     private volatile bool _transmitting = true; // fail open until the signal is read
     private string _lastSignalState;
     private long _signalChanges;
@@ -103,12 +107,13 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate, float readHeadMarginFrames, float eqDryWet)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet)
     {
         _log = log;
         _pump = pump;
         _forwardMeters = forwardMeters;
         _gateEnabled = transmitGate;
+        _fadeOutOverrideMs = transmitFadeOutMs > 0 && !float.IsNaN(transmitFadeOutMs) ? transmitFadeOutMs : 0f;
         _eqDryWet = float.IsNaN(eqDryWet) ? 0f : Mathf.Clamp01(eqDryWet);
         ReadHeadMarginFrames = readHeadMarginFrames > 0 && !float.IsNaN(readHeadMarginFrames) ? readHeadMarginFrames : 1.5f;
         Instance = this;
@@ -366,6 +371,9 @@ internal sealed class LocalVoiceRenderer
     {
         if (count > _scratch.Length) count = _scratch.Length;
         _decoder.CopyTo(_scratch, count);
+        // The channel fade a peer hears on the game's voice-activation channel, ahead of their
+        // playback processing (the channel volume is a property of the stream they receive).
+        if (_gateEnabled) _fader.Apply(_scratch.AsSpan(0, count), _transmitting, LocalVoiceDecoder.SampleRate);
         _dynamics.Process(_scratch.AsSpan(0, count), _makeupGain, _threshold, LocalVoiceDecoder.SampleRate);
         _decoder.CopyFrom(_scratch, count);
         _lastArv = _dynamics.Arv;
@@ -463,6 +471,7 @@ internal sealed class LocalVoiceRenderer
     {
         var sample = TransmitSignal.Read(out var error);
         _transmitting = !sample.Available || sample.PeersReceive;
+        if (_gateEnabled && !_fadeConfigured && sample.Available) ConfigureFade();
         if (error is not null && !_reportedSignalError)
         {
             _reportedSignalError = true;
@@ -475,6 +484,33 @@ internal sealed class LocalVoiceRenderer
         var n = ++_signalChanges;
         if (n <= 40 || n % 50 == 0)
             _log.LogInfo($"Transmit signal #{n}: {state}");
+    }
+
+    /// <summary>
+    /// Main thread, once the game's voice-activation triggers exist: takes their channel fade so
+    /// the gate opens and closes the way a peer hears it (config <c>Fidelity.TransmitFadeOutMs</c>
+    /// overrides the fade-out), and grows the gate's hold to cover the fade-out so no frame is
+    /// silenced mid-fade. An unreadable fade keeps the hard gate and is logged once.
+    /// </summary>
+    private void ConfigureFade()
+    {
+        try
+        {
+            if (!TransmitSignal.TryReadFade(out var fadeIn, out var fadeOut, out var source)) return;
+            var gameFadeOut = fadeOut;
+            if (_fadeOutOverrideMs > 0) fadeOut = _fadeOutOverrideMs;
+            _fader.Set(fadeIn, fadeOut);
+            _gate.SetReleaseHold(Math.Max(TransmitGate.DefaultReleaseHoldMs, fadeOut + 60));
+            _fadeConfigured = true;
+            _log.LogInfo($"Transmit fade: in {fadeIn:F0} ms, out {fadeOut:F0} ms (the game's '{source}' trigger fades out over {gameFadeOut:F0} ms); gate hold {_gate.ReleaseHoldMs:F0} ms.");
+        }
+        catch (Exception e)
+        {
+            _fadeConfigured = true;
+            if (_reportedFadeError) return;
+            _reportedFadeError = true;
+            _log.LogWarning($"Transmit fade: unreadable, the gate stays hard: {e.Message}");
+        }
     }
 
     /// <summary>
@@ -570,7 +606,7 @@ internal sealed class LocalVoiceRenderer
             $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
             $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
             $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}; " +
-            $"gate {(_gateEnabled ? "on" : "off")}: transmitting {_transmitting}, passed {_gate.FramesPassed}, silenced {_gate.FramesSilenced}, signal changes {_signalChanges}; " +
+            $"gate {(_gateEnabled ? "on" : "off")}: transmitting {_transmitting}, passed {_gate.FramesPassed}, silenced {_gate.FramesSilenced}, signal changes {_signalChanges}, fade {_fader.FadeInMs:F0}/{_fader.FadeOutMs:F0} ms, hold {_gate.ReleaseHoldMs:F0} ms; " +
             $"remote path: makeup {_makeupGain:F2} ({_makeup.GainDb:F1} dB, level {_makeup.Level:F3}), arv {_lastArv:F3}, reduction {_dynamics.Reduction:F2}, pre-clip peak {_dynamics.PreClipPeak:F2}, threshold {_threshold:F3}, eq {(_eq is null ? "off" : $"wet {_eqDryWet:F2}")}.");
         LogGameAudioState();
     }

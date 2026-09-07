@@ -38,6 +38,19 @@ public class TransmitGateTests
     }
 
     [Fact]
+    public void Set_release_hold_applies_to_the_next_decision_and_keeps_the_counters()
+    {
+        var gate = new TransmitGate(releaseHoldMs: 100);
+        gate.Decide(true, 0);
+        gate.SetReleaseHold(500);
+        Assert.Equal(500, gate.ReleaseHoldMs);
+        Assert.Equal(GateDecision.Pass, gate.Decide(false, 400)); // inside the new hold
+        Assert.Equal(GateDecision.Silence, gate.Decide(false, 600));
+        Assert.Equal(2, gate.FramesPassed);
+        Assert.Throws<ArgumentOutOfRangeException>(() => gate.SetReleaseHold(-1));
+    }
+
+    [Fact]
     public void A_new_onset_inside_the_hold_extends_it()
     {
         var gate = new TransmitGate(releaseHoldMs: 100);

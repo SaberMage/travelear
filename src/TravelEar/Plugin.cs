@@ -69,7 +69,7 @@ public sealed class Plugin : BasePlugin
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -96,6 +96,7 @@ internal sealed class PluginConfig
     public ConfigEntry<string> SinkEndpoint { get; }
     public ConfigEntry<bool> MixerStage { get; }
     public ConfigEntry<bool> TransmitGate { get; }
+    public ConfigEntry<float> TransmitFadeOutMs { get; }
     public ConfigEntry<bool> Downmix { get; }
     public ConfigEntry<float> ReadHeadMarginFrames { get; }
     public ConfigEntry<float> SelfEarForwardMeters { get; }
@@ -115,6 +116,8 @@ internal sealed class PluginConfig
             "Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character).");
         TransmitGate = file.Bind("Fidelity", "TransmitGate", true,
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
+        TransmitFadeOutMs = file.Bind("Fidelity", "TransmitFadeOutMs", 0f,
+            "Fade-out of Local Voice when the game's voice activation stops hearing you, in ms. 0 = the game's own channel fade (read from its voice-activation trigger, logged as 'Transmit fade:'). Raise it if speech still chops between words.");
         Downmix = file.Bind("Sink", "Downmix", false,
             "Downmix Local Voice to mono before sending it to the Sink.");
         // [impl->REQ-OFFSET-MEASURE]

@@ -82,6 +82,9 @@ internal static class GameSymbols
         Property(missing, typeof(VoiceBroadcastTrigger), "RoomName");
         Property(missing, typeof(VoiceBroadcastTrigger), "Mode");
         Property(missing, typeof(VoiceBroadcastTrigger), "_isVadSpeaking");
+        Property(missing, typeof(VoiceBroadcastTrigger), "_activationFaderSettings");
+        Property(missing, typeof(VolumeFaderSettings), "_fadeInTicks");
+        Property(missing, typeof(VolumeFaderSettings), "_fadeOutTicks");
 
         // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
         IsBound = missing.Complete(out var report);

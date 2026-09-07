@@ -181,6 +181,36 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   postfix stays (it is how triggers are found). Run 3 owes: noise floor gone between words,
   onsets intact (the VAD onset is what peers get), T1 level and `remote path:` movement, T2
   `Offset:` lines, T3 OBS capture of the Helper window carrying Local Voice.
+- **M2 run 3** (2026-09-07, operator solo run on `9750944`): the gate opened with speech
+  (`vad True -> gate OPEN`), 1667 frames passed / 1326 silenced. Operator: noise floor gone
+  between words, onsets intact, Local Voice level matches a peer, OBS captures the Helper
+  window with voice. `remote path:` makeup moved with speech (1.0 -> 1.7 -> 3.3, +10 dB held
+  through pauses as the game's loop does). `Offset:` rolling averages 287-305 ms (per frame
+  210-380 ms) at margin 1.5 frames, one early window averaging 1191 ms (max 2722 ms) while
+  the first resyncs settled; resyncs 16, all "reader overran" before the first burst, none
+  after; no drops, no underruns. **Checks 1-4 cleared. New defect:** Local Voice choppy with
+  "debris", like a DAW input starved of CPU. Cause: the VAD flag flips several times per
+  phrase (231 signal changes, about seven passed frames per flip), the gate was a hard cut
+  with a 100 ms hold, so every flip past the hold spliced a zero frame into speech and each
+  re-open restarted the makeup loop's first-second slew. What a peer hears instead:
+  Dissonance fades the channel in and out (`VoiceBroadcastTrigger._activationFader` driven
+  by `VolumeFaderSettings._fadeInTicks`/`_fadeOutTicks`) and the channel stays open through
+  the fade-out; in solo that fader never runs because the channel never opens, so the mod
+  has to apply the same fade itself.
+- **T0 fix: channel fade** (2026-09-07): Core `TransmitFader` (linear per-sample ramp toward
+  1 while transmitting and toward 0 otherwise at the fade-in / fade-out rate, zero fade =
+  hard, a re-onset mid-fade ramps from the current gain, reports an all-silent frame) + 6
+  tests tagged `REQ-RENDER-CLEAN`; `TransmitGate.SetReleaseHold` (+1 test) so the hold grows
+  to fade-out + one frame without resetting the counters. Renderer applies the fader on the
+  encoder thread before the remote-path dynamics (assumption: the channel volume is a
+  property of the stream a peer receives, ahead of their playback processing; revisit if the
+  fade sounds compressed), and reads the fade once from the game's voice-activation triggers
+  (`TransmitSignal.TryReadFade`, longest fade-out among them; logged as `Transmit fade:`; the
+  fader is linear like Dissonance's `Fader.CalculateVolume`: start + (end - start) x clamp(elapsed / duration), read from the ISIL dump). Config
+  `Fidelity.TransmitFadeOutMs` (0 = the game's) overrides the fade-out if the VAD still
+  flickers audibly; the stats line shows `fade in/out` and `hold`. Operator check owed
+  (run 4): speech smooth, no debris, noise floor still gone, onsets intact; the
+  `Transmit fade:` line shows the game's values.
 - **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
   `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
   Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged

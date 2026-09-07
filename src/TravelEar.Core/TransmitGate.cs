@@ -32,20 +32,30 @@ public sealed class TransmitGate
     /// <summary>Default release hold: about two 60 ms Opus frames.</summary>
     public const double DefaultReleaseHoldMs = 100;
 
-    private readonly double _releaseHoldMs;
+    private double _releaseHoldMs;
     private double _lastTransmitMs = double.NegativeInfinity;
     private long _framesPassed;
     private long _framesSilenced;
 
     public TransmitGate(double releaseHoldMs = DefaultReleaseHoldMs)
     {
-        if (releaseHoldMs < 0 || double.IsNaN(releaseHoldMs))
-            throw new ArgumentOutOfRangeException(nameof(releaseHoldMs), releaseHoldMs, "The release hold must be zero or positive.");
-        _releaseHoldMs = releaseHoldMs;
+        SetReleaseHold(releaseHoldMs);
     }
 
     /// <summary>How long the gate stays open after the transmit signal drops, in milliseconds.</summary>
     public double ReleaseHoldMs => _releaseHoldMs;
+
+    /// <summary>
+    /// Changes the hold without touching the counters or the last-transmit time; the next
+    /// decision uses it. The renderer grows the hold to cover the channel fade-out once the
+    /// game's fade times are known (<see cref="TransmitFader"/>).
+    /// </summary>
+    public void SetReleaseHold(double releaseHoldMs)
+    {
+        if (releaseHoldMs < 0 || double.IsNaN(releaseHoldMs))
+            throw new ArgumentOutOfRangeException(nameof(releaseHoldMs), releaseHoldMs, "The release hold must be zero or positive.");
+        _releaseHoldMs = releaseHoldMs;
+    }
 
     /// <summary>Frames that passed through since construction.</summary>
     public long FramesPassed => Volatile.Read(ref _framesPassed);

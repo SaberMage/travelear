@@ -13,6 +13,7 @@ mod installed, the same settings appear in the pause menu.
 | `Sink.Downmix` | `false` | Force mono output. By default the stream keeps the channel count the game produces. |
 | `Fidelity.MixerStage` | `true` | Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character). Turn off to hear only the exactly captured part. |
 | `Fidelity.TransmitGate` | `true` | Render your voice only while other players would receive it: not muted, and the game's voice activation hears speech or a radio/megaphone room is open. Off renders everything the mic encodes, noise floor included. |
+| `Fidelity.TransmitFadeOutMs` | `0` | Fade-out of Local Voice when the game's voice activation stops hearing you, in ms. `0` = the game's own channel fade, read from its voice-activation trigger and logged as `Transmit fade:`. Raise it if speech still chops between words. |
 | `Fidelity.ReadHeadMarginFrames` | `1.5` | Buffer margin at the start of each talk burst, in 60 ms frames. Lower for less delay; raise it if the log's stats line shows read-head resyncs climbing. |
 | `Fidelity.SelfEarEqDryWet` | `0` | Wet mix (0 to 1) of the game's 400 Hz voice EQ. 0 is the dry voice a listener standing next to you hears. |
 | `Ear.SelfEarForwardMeters` | `0.0762` | How far in front of your in-game ears the voice is placed, in metres (3 inches). |

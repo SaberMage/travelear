@@ -86,6 +86,33 @@ internal static class TransmitSignal
         }
     }
 
+    /// <summary>
+    /// Main thread. The channel fade of the game's voice-activation triggers, from their own
+    /// <c>VolumeFaderSettings</c>: the longest fade-out among them and that trigger's fade-in.
+    /// False until a voice-activation trigger has started. Throws on an interop failure (the
+    /// caller logs once and keeps the hard gate).
+    /// </summary>
+    public static bool TryReadFade(out double fadeInMs, out double fadeOutMs, out string source)
+    {
+        fadeInMs = 0;
+        fadeOutMs = -1;
+        source = null;
+        foreach (var trigger in Triggers)
+        {
+            if (trigger is null || trigger.Pointer == IntPtr.Zero) continue;
+            if (trigger.Mode != CommActivationMode.VoiceActivation) continue;
+            var settings = trigger._activationFaderSettings;
+            if (settings is null) continue;
+            var outMs = settings._fadeOutTicks / 10000.0; // TimeSpan ticks
+            if (outMs <= fadeOutMs) continue;
+            fadeOutMs = outMs;
+            fadeInMs = settings._fadeInTicks / 10000.0;
+            var name = trigger.RoomName;
+            source = string.IsNullOrEmpty(name) ? "(unnamed)" : name;
+        }
+        return fadeOutMs >= 0;
+    }
+
     /// <summary>Main thread. Never throws; a failed read returns an unavailable sample and the error.</summary>
     public static Sample Read(out Exception error)
     {
