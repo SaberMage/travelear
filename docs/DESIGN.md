@@ -56,6 +56,8 @@ The renderer's last `IAudioFilter` copies the processed buffer into a lock-free 
 
 Self-Ear parameters: evaluate the game's attenuation, filter-distance, filter-angle, and spatial curves at distance 0 and angle 0, occlusion 0, and read the local player's own `outdoorness` and `echoAmount`. Apply `VoiceMakeupGain` exactly as `PlayerVoicePlaybackControl.Update` does for a remote player.
 
+Self-Ear geometry (operator note, 2026-09-07, for later experimentation): a person does not hear their own voice on-axis. The voice leaves at the edges of the mouth and through the cheeks, so from the speaker's own ears it radiates roughly perpendicular, as a cone of about 160-170 degrees whose apex sits 2-3 inches in front of the ears. A peer voice pointed straight at the listener sits at angle 0 on the game's filter-angle curve; the Self-Ear should therefore probably sit off-axis on that curve (some extra `High{n}` roll-off relative to a peer facing you) rather than at angle 0. Treat the angle-0 value above as the v1 starting point and calibrate the off-axis amount by ear against a second-client recording.
+
 ### Mixer Stage re-synthesis
 
 Reads the same per-channel mixer floats the game writes (`Dry{n}`, `High{n}`, `ReverbFallWet{n}`, `ReverbBoostWet{n}`, `Megaphone{n}Wet/Dry`, HP/LP, compressors) and applies equivalent DSP in the mod. Each effect has a config toggle. Reverb is approximated; calibrate against a recording made on a second client hearing the same speech.

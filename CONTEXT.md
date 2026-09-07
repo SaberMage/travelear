@@ -36,7 +36,10 @@ normal voice.)
 
 **Ear** — the listener model used to render **Local Voice**. The **Self-Ear** is the local
 player's own in-game listener at zero distance from the speaker, facing it, with no occlusion and
-the player's own outdoorness. It is the only Ear in v1. (Avoid: virtual listener, observer.)
+the player's own outdoorness. It is the only Ear in v1. Its angle is an open calibration point:
+one's own voice reaches one's ears off-axis (a wide cone from just in front of the ears), so the
+Self-Ear may sit part-way along the game's filter-angle curve rather than at angle 0 (see the
+Self-Ear geometry note in `docs/DESIGN.md`). (Avoid: virtual listener, observer.)
 
 ### Processing
 
