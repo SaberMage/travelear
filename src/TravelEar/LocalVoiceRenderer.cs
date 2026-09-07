@@ -456,8 +456,8 @@ internal sealed class LocalVoiceRenderer
     // [impl->REQ-VOICE-CONTINUOUS]
     /// <summary>
     /// Main thread: reads the "peers receive" signal into the flag the encoder thread gates on,
-    /// and logs the three candidate signals side by side once per state change (M2-PLAN question 1;
-    /// the first changes verbosely, then every 50th). A signal that cannot be read fails open.
+    /// and logs the signal's parts once per state change (the first 40 changes, then every 50th:
+    /// the VAD flips per phrase). A signal that cannot be read fails open.
     /// </summary>
     private void SampleTransmitSignal()
     {

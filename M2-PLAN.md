@@ -37,6 +37,11 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
    (`PlayerChannels`). M1 T2 run 4 saw VAD fire on the GhostRoom trigger and Self Echo stay
    open all session. Answer by logging (a), (b) and (c) side by side for one run and picking the
    one that matches speech onsets; prefer (a) because it covers radio/megaphone rooms later.
+   **Answered (runs 1-2):** none of the three. In a solo session no room but `Echo` ever opens
+   and no trigger but Self Echo ever transmits, while the GhostRoom and proximity triggers'
+   own VAD flag (`_isVadSpeaking`) flips with speech; the game's mute stops the encoder
+   outright. Signal = not `DissonanceComms.IsMuted` and (any non-`Echo` room open, which keeps
+   (a) for the Open-mode token rooms, or any voice-activation trigger's VAD speaking).
 2. **Where does the remote path's processing live and what order?** Study
    `SamplePlaybackComponent` (`_compressor` VoiceCompressor, soft-clip constants, `MakeupGain`,
    `ARV`/`OutputARV`) and `PlayerVoicePlaybackControl.Update` (FilterDistance/Angle/Attenuation/
@@ -142,8 +147,8 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   `Fidelity.TransmitGate` (default on). One-run probe logs (a), (b) triggers with `IsTransmitting`
   (collected by a `VoiceBroadcastTrigger.Start` postfix) and (c) open player channels side by side
   once per state change (`Transmit signal #n:` lines). Fail-open if the comms are missing or the
-  read throws. Awaiting the operator's in-game run: expect the noise floor gone between words,
-  onsets intact, and (a) to flip with speech.
+  read throws. Runs 1-2 showed (a) never opens in a solo session; settled on the VAD flag plus
+  (a) for token rooms, see question 1 and "M2 run 2" below.
 - **M2 run 1** (2026-09-07, operator solo run on `7a541c3`): the gate stayed closed for the
   whole session, so Local Voice was silent and checks 1-3 could not be judged. Probe lines:
   `rooms=[Echo] triggersTransmitting=[Echo(Open)] playerChannels=[]` from world load to exit,
@@ -161,6 +166,21 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   is analog line noise that tracks the game rendering and stays audible with the game's audio
   muted at the mixer, so it is not Local Voice; the transmit gate remains a fidelity item
   (peers do not hear the Self Echo room), not a noise fix.
+- **M2 run 2** (2026-09-07, operator solo run on `c1837d5`, voice unmuted / muted / unmuted):
+  widened probe answers question 1. Sixteen triggers tracked: fourteen Open-mode token rooms
+  (radio, megaphones, interview, seance, train intercom; none transmitting), Self Echo
+  (Open, transmitting all session, the only open room), `GhostRoom` (VoiceActivation) and an
+  unnamed VoiceActivation trigger (the proximity one). Both voice-activation triggers' VAD
+  flag flipped with speech (80 state changes over the run) but neither ever transmitted, so
+  no peer-facing channel opened and signal (a) could not. Mute set `DissonanceComms.IsMuted`
+  and froze the encoded-frame count for the muted stretch (encoder otherwise continuous:
+  167 x 60 ms frames per 10 s); Dissonance's local `IsSpeaking` stayed true throughout (Echo
+  open) and is useless. Gate closed all run again, so checks 1-3 stay owed. **Probe settled:**
+  signal = not muted and (non-`Echo` room open or voice-activation VAD speaking); probe text
+  and the player-channel, local-state and per-trigger-mute reads removed; the `Start`
+  postfix stays (it is how triggers are found). Run 3 owes: noise floor gone between words,
+  onsets intact (the VAD onset is what peers get), T1 level and `remote path:` movement, T2
+  `Offset:` lines, T3 OBS capture of the Helper window carrying Local Voice.
 - **T3 built** (2026-09-07, while T0's run and T1's bodies read were pending): Core
   `HelperLifecycle` (spawn once per session, never respawn even after a failed spawn or an exited
   Helper; pipe re-arm delay so arms are never closer than 5 s) + 8 tests, tagged

@@ -70,26 +70,18 @@ internal static class GameSymbols
         Property(missing, typeof(LocalVoiceProvider), "CachedVoiceData");
         Property(missing, typeof(LocalVoiceProvider), "CachedVoiceWriteHead");
 
-        // Transmit signal (M2 T0): the open Dissonance channels and the broadcast triggers.
+        // Transmit signal (M2 T0): comms mute, the open room channels and the broadcast triggers.
         Property(missing, typeof(WorldManager), "instance");
         Property(missing, typeof(WorldManager), "dissonanceComms");
+        Property(missing, typeof(DissonanceComms), "IsMuted");
         Property(missing, typeof(DissonanceComms), "RoomChannels");
-        Property(missing, typeof(DissonanceComms), "PlayerChannels");
         Property(missing, typeof(RoomChannels), "_openChannelsBySubId");
-        Property(missing, typeof(PlayerChannels), "_openChannelsBySubId");
         Property(missing, typeof(RoomChannel), "_roomId");
         Property(missing, typeof(RoomName), "Name");
-        Property(missing, typeof(PlayerChannel), "_playerId");
         Property(missing, typeof(VoiceBroadcastTrigger), "IsTransmitting");
         Property(missing, typeof(VoiceBroadcastTrigger), "RoomName");
         Property(missing, typeof(VoiceBroadcastTrigger), "Mode");
-        // Probe only (M2 T0 run 2; remove with the probe).
-        Property(missing, typeof(VoiceBroadcastTrigger), "IsMuted");
         Property(missing, typeof(VoiceBroadcastTrigger), "_isVadSpeaking");
-        Property(missing, typeof(DissonanceComms), "IsMuted");
-        Property(missing, typeof(DissonanceComms), "LocalPlayerName");
-        Method(missing, typeof(DissonanceComms), "FindPlayer", typeof(string));
-        Property(missing, typeof(VoicePlayerState), "IsSpeaking");
 
         // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
         IsBound = missing.Complete(out var report);
