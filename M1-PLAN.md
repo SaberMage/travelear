@@ -216,6 +216,21 @@ each as its evidence lands, per the activation model in `traceable-reqs.toml`.
      `PlayerVoicePlaybackControl` EQ/attenuation that the Clean `LocalVoiceProvider` path skips
      (M2: REQ-RENDER-CLEAN / REQ-EAR-SELF curves).
 
+  5. Run 4: pin ran, but clearing the controller's follow target made it fall back to the fixed
+     world position it was played at (the origin): source local = -listenerPosition in the log,
+     so the voice panned with the player's facing but never followed the view axis. Fixed: our
+     object and the pooled source are both children of the anchor at the same local offset and
+     the controller keeps following our object (its write resolves to the exact local offset,
+     no lag). `Camera.main` is null in this game; anchor = camera above the listener if any,
+     else the listener object ("Audio Listener"); anchor forward logged to confirm it rotates.
+     Noise floor: mic is always on (PTT toggle, default on) and the game's Self Echo channel is
+     always open, so the encoder runs continuously and Local Voice renders the mic noise floor
+     between words. Peers only receive frames while the voice-activation (GhostRoom) channel is
+     open, so a transmit gate (`DissonanceComms.RoomChannels` via `WorldManager.instance.dissonanceComms`,
+     any open room other than "Echo", or the GhostRoom trigger's `IsTransmitting`) is an M2
+     fidelity item. **Operator: park the noise floor until the remaining Filter Stage effects
+     (SamplePlaybackComponent compressor/soft clip, VoiceMakeupGain, ARV gating, EQ) are in.**
+
 ### T3 signature notes (from the interop assemblies, 2026-09-07)
 
 - `VoicePlayer : MonoBehaviour` is itself the `IAudioFilter` (`ProcessSamples(ref

@@ -204,15 +204,22 @@ internal sealed class LocalVoiceRenderer
         var pinned = _pinnedSource is not null && _pinnedSource.parent is not null && _pinnedSource.parent.Pointer == _anchor.Pointer;
         if (pinned) return;
 
+        // Both our object and the pooled source become children of the anchor at the same local
+        // offset, and the controller keeps following our object. Its per-frame write
+        // (source.position = follow.position) then resolves to exactly that local offset whatever
+        // frame's anchor pose it read, so the audio thread always sees anchor(now) * offset:
+        // no one-frame lag. Clearing the follow target instead (run 4) made the controller fall
+        // back to the fixed world position it was played at, the world origin.
         _pinnedSource = sourceTransform;
         _pinnedSourceOriginalParent = sourceTransform.parent;
-        controller.FollowTransform = null;
-        sourceTransform.SetParent(_anchor, false);
-        sourceTransform.localPosition = new Vector3(0f, 0f, _forwardMeters);
-        sourceTransform.localRotation = Quaternion.identity;
         _voiceObject.transform.SetParent(_anchor, false);
-        _voiceObject.transform.localPosition = sourceTransform.localPosition;
-        _log.LogInfo($"Local Voice: emitter pinned to '{_anchor.name}', {_forwardMeters * 100f:F1} cm forward along its view axis (follow cleared).");
+        _voiceObject.transform.localPosition = new Vector3(0f, 0f, _forwardMeters);
+        _voiceObject.transform.localRotation = Quaternion.identity;
+        sourceTransform.SetParent(_anchor, false);
+        sourceTransform.localPosition = _voiceObject.transform.localPosition;
+        sourceTransform.localRotation = Quaternion.identity;
+        controller.FollowTransform = _voiceObject.transform;
+        _log.LogInfo($"Local Voice: emitter pinned to '{_anchor.name}', {_forwardMeters * 100f:F1} cm forward along its view axis; anchor forward {_anchor.forward}.");
     }
 
     /// <summary>
@@ -225,9 +232,25 @@ internal sealed class LocalVoiceRenderer
         try
         {
             var camera = Camera.main;
-            if (camera is not null) return camera.transform;
+            if (camera is not null)
+            {
+                _log.LogInfo($"Local Voice: anchor = main camera '{camera.name}'.");
+                return camera.transform;
+            }
             var listener = AudioManager.Instance?.ListenerController?._listener;
-            if (listener is not null) return listener.transform;
+            if (listener is not null)
+            {
+                // No camera tagged MainCamera in this game (run 4). If the listener hangs under a
+                // camera, anchor to that camera so the offset follows the view rotation.
+                var parentCamera = listener.GetComponentInParent<Camera>();
+                if (parentCamera is not null)
+                {
+                    _log.LogInfo($"Local Voice: anchor = camera '{parentCamera.name}' above listener '{listener.name}'.");
+                    return parentCamera.transform;
+                }
+                _log.LogInfo($"Local Voice: anchor = listener '{listener.name}' (parent '{listener.transform.parent?.name}').");
+                return listener.transform;
+            }
         }
         catch (Exception e)
         {
@@ -376,7 +399,8 @@ internal sealed class LocalVoiceRenderer
             var sourceText = source is null
                 ? "source none"
                 : $"source playing={source.isPlaying} vol={source.volume:F2} mute={source.mute} spatial={source.spatialBlend:F2} " +
-                  $"group='{source.outputAudioMixerGroup?.name}' clip='{source.clip?.name}' local={source.transform.localPosition} parent='{source.transform.parent?.name}'";
+                  $"group='{source.outputAudioMixerGroup?.name}' clip='{source.clip?.name}' local={source.transform.localPosition} parent='{source.transform.parent?.name}' " +
+                  $"anchorFwd={(_anchor is null ? Vector3.zero : _anchor.forward)} follow='{_player?.Controller?.FollowTransform?.name}'";
             _log.LogInfo(
                 $"Game audio: listener vol={AudioListener.volume:F2} pause={AudioListener.pause}; " +
                 $"master={(manager?.MasterVolume is null ? -1f : (float)manager.MasterVolume):F2} " +
