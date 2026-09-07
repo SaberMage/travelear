@@ -162,6 +162,30 @@ internal sealed class LocalVoiceRenderer
             $"tap blocks {Interlocked.Read(ref TapFilter.Blocks)} ({TapFilter.Channels} ch x {TapFilter.BlockLength}, peak {TapFilter.LastPeak:F3}), " +
             $"ring {TapFilter.Ring.Count} smp, dropped {TapFilter.Ring.DroppedSamples}, underruns {TapFilter.Ring.Underruns}; " +
             $"sink {(_pump.Connected ? "connected" : "waiting")}, frames sent {Interlocked.Read(ref _pump.FramesSent)}.");
+        LogGameAudioState();
+    }
+
+    /// <summary>Diagnostics for "no game audio" reports: global listener/mixer state and our own source.</summary>
+    private void LogGameAudioState()
+    {
+        try
+        {
+            var manager = AudioManager.Instance;
+            var source = _player?.Controller?.AudioSource;
+            var sourceText = source is null
+                ? "source none"
+                : $"source playing={source.isPlaying} vol={source.volume:F2} mute={source.mute} spatial={source.spatialBlend:F2} " +
+                  $"group='{source.outputAudioMixerGroup?.name}' clip='{source.clip?.name}' pos={source.transform.position}";
+            _log.LogInfo(
+                $"Game audio: listener vol={AudioListener.volume:F2} pause={AudioListener.pause}; " +
+                $"master={(manager?.MasterVolume is null ? -1f : (float)manager.MasterVolume):F2} " +
+                $"globalMute={(manager?.GlobalMuteVolume is null ? -1f : (float)manager.GlobalMuteVolume):F2} " +
+                $"vo={(manager?.VOVolume is null ? -1f : (float)manager.VOVolume):F2}; listener at {AudioManager.ListenerPosition}; {sourceText}.");
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning($"Game audio: state read failed: {e.Message}");
+        }
     }
 }
 
