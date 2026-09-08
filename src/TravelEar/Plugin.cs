@@ -78,8 +78,9 @@ public sealed class Plugin : BasePlugin
         // Renderer: built lazily from the main thread once the game's audio system exists.
         var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
         var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value);
+        var environment = new EnvironmentReverbToggles(Settings.EnvironmentReverb.Value, Settings.EnvironmentReverbDryCopy.Value, Settings.EnvironmentReverbBusGains.Value, Settings.EnvironmentReverbVoiceSlider.Value);
         _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value,
-            megaphone, Settings.MegaphoneMix.Value);
+            megaphone, Settings.MegaphoneMix.Value, environment);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -135,6 +136,10 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> MegaphoneHighPass { get; }
     public ConfigEntry<bool> MegaphoneCompressors { get; }
     public ConfigEntry<MegaphoneMix> MegaphoneMix { get; }
+    public ConfigEntry<bool> EnvironmentReverb { get; }
+    public ConfigEntry<bool> EnvironmentReverbDryCopy { get; }
+    public ConfigEntry<bool> EnvironmentReverbBusGains { get; }
+    public ConfigEntry<bool> EnvironmentReverbVoiceSlider { get; }
     public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<float> TransmitFadeOutMs { get; }
     public ConfigEntry<bool> Downmix { get; }
@@ -179,6 +184,15 @@ internal sealed class PluginConfig
             "The megaphone mixer's compressor (-25 dB, +6 dB make-up) and post-compressor (-15 dB). Approximate.");
         MegaphoneMix = file.Bind("Fidelity", "MegaphoneMix", TravelEar.MegaphoneMix.Add,
             "Add = the megaphone output on top of your direct voice, as a listener beside you hears both. Replace = only the megaphone output while broadcasting.");
+        // [impl->REQ-MIXER-RESYNTH]
+        EnvironmentReverb = file.Bind("Fidelity", "EnvironmentReverb", true,
+            "Apply the room reverb a listener beside you hears on your voice (the game's dynamic reverb: hallways, caves, outdoors), from the same live parameters the game writes each frame. Master switch for the EnvironmentReverb* toggles. Approximate reverb, exact levels and decay.");
+        EnvironmentReverbDryCopy = file.Bind("Fidelity", "EnvironmentReverbDryCopy", true,
+            "The reverb's own un-reverbed copy of the voice (its DryLevel), which the game mixes on top of the direct path. It is what makes a nearby voice sit in the room rather than beside it.");
+        EnvironmentReverbBusGains = file.Bind("Fidelity", "EnvironmentReverbBusGains", true,
+            "Apply the fixed bus trims a voice meets on a listener's machine (-3 dB voice group, -6 dB dry bus). Off = both at 0 dB, louder than the game.");
+        EnvironmentReverbVoiceSlider = file.Bind("Fidelity", "EnvironmentReverbVoiceSlider", false,
+            "Multiply by the listener's voice volume slider as the game does. Off by default: the Sink level convention already follows your own slider.");
         TransmitGate = file.Bind("Fidelity", "TransmitGate", true,
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         TransmitFadeOutMs = file.Bind("Fidelity", "TransmitFadeOutMs", 0f,

@@ -35,6 +35,13 @@ internal static class GameSymbols
 
     public static bool IsBound { get; private set; }
 
+    /// <summary>Unity's SFX Reverb parameter names in its documented order; <c>AudioDynamicReverb</c> exposes them as <c>DSP_*</c>, <c>AudioBasicReverb</c> bare, and the main mixer under the same names.</summary>
+    public static readonly string[] ReverbParameterNames =
+    {
+        "DryLevel", "Room", "RoomHF", "RoomLF", "DecayTime", "DecayHFRatio", "Reflections", "ReflectDelay",
+        "Reverb", "ReverbDelay", "HFReference", "LFReference", "Diffusion", "Density",
+    };
+
     // [impl->REQ-HAZARD-NO-PARTIAL-FIDELITY]
     /// <summary>
     /// Resolves all symbols. Returns false, having logged the complete list of misses, if any
@@ -104,6 +111,23 @@ internal static class GameSymbols
         Property(missing, typeof(RadioVoiceAssigner), "isBroadcasting");
         Property(missing, typeof(RadioVoiceAssigner), "latestBroadcastPlayer");
         Property(missing, typeof(RadioVoiceAssigner), "roomName");
+
+        // Environment reverb (M3 T2b): the listener's SFX Reverb parameters as the game writes them
+        // (Dynamic or Basic mode), the Master Wet return level and the voice slider.
+        Property(missing, typeof(AudioManager), "AudioBasicReverb");
+        Property(missing, typeof(AudioDynamicReverb), "Bypass");
+        Property(missing, typeof(AudioDynamicReverb), "RoomSize");
+        Property(missing, typeof(AudioDynamicReverb), "ReverbTime");
+        Property(missing, typeof(AudioDynamicReverb), "Diffusion");
+        Property(missing, typeof(AudioBasicReverb), "Bypass");
+        foreach (var name in ReverbParameterNames)
+        {
+            Property(missing, typeof(AudioDynamicReverb), "DSP_" + name);
+            Property(missing, typeof(AudioBasicReverb), name);
+        }
+        Property(missing, typeof(GlobalAudioEffects), "Mixer");
+        Property(missing, typeof(GlobalAudioEffects), "VoiceNormalVol");
+        Property(missing, typeof(GlobalAudioEffects), "VoiceAudioSettingsVol");
 
         // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
         IsBound = missing.Complete(out var report);

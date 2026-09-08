@@ -23,6 +23,10 @@ mod installed, the same settings appear in the pause menu.
 | `Fidelity.MegaphoneHighPass` | `true` | The megaphone's 300 Hz high-pass. Exact port. |
 | `Fidelity.MegaphoneCompressors` | `true` | The megaphone mixer's two compressors. Approximate. |
 | `Fidelity.MegaphoneMix` | `Add` | `Add` puts the megaphone output on top of your direct voice, which is what a listener beside you hears. `Replace` keeps only the megaphone output while you broadcast. |
+| `Fidelity.EnvironmentReverb` | `true` | The room reverb a listener beside you hears on your voice (the game's dynamic reverb: hallways, caves, almost nothing outdoors), driven by the same live parameters the game writes each frame. Master switch for the `EnvironmentReverb*` toggles. Levels, onsets and decay are exact targets; the reverb network is approximate. |
+| `Fidelity.EnvironmentReverbDryCopy` | `true` | The reverb's own un-reverbed copy of your voice, which the game mixes on top of the direct path. It is what makes a nearby voice sit in the room rather than beside it. |
+| `Fidelity.EnvironmentReverbBusGains` | `true` | The fixed bus trims a voice meets on a listener's machine (-3 dB voice group, -6 dB dry bus). Off = both at 0 dB, louder than the game. |
+| `Fidelity.EnvironmentReverbVoiceSlider` | `false` | Multiply by the listener's voice volume slider as the game does. Off by default: the Sink level already follows your own slider. |
 | `Fidelity.TransmitGate` | `true` | Render your voice only while other players would receive it: not muted, and the game's voice activation hears speech or a radio/megaphone room is open. Off renders everything the mic encodes, noise floor included. |
 | `Fidelity.TransmitFadeOutMs` | `0` | Fade-out of Local Voice when the game's voice activation stops hearing you, in ms. `0` = the game's own channel fade, read from its voice-activation trigger and logged as `Transmit fade:`. Raise it if speech still chops between words. |
 | `Fidelity.ReadHeadMarginFrames` | `1.5` | `VoicePlayer` feed only. Buffer margin at the start of each talk burst, in 60 ms frames. Lower for less delay; raise it if the log's stats line shows read-head resyncs climbing. |

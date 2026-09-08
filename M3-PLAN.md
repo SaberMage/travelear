@@ -123,6 +123,22 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
 - Tag: `[doc->REQ-CONFIG-BEPINEX]` (DESIGN Config section), `[impl->…]`; `REQ-OFFSET-MEASURE`
   doc line for the row.
 
+### T2b — Environment reverb
+
+- Added 2026-09-08 from the operator's hallway observation (friends' voices in the starting-area
+  hallway carry a room reverb; Local Voice had none). T1 modelled the per-voice sends only; the
+  hallway reverb is the listener-side `Master Wet` SFX Reverb the game re-parameterizes every
+  frame from `AudioDynamicReverb` (docs/reference/big-walk-environment-reverb.md). Core model of
+  the fourteen parameters (read live, formulas kept as the test oracle), `SfxReverb` (I3DL2
+  mapping onto the Freeverb network: dry copy, room, reflections/delay, reverb/delay, decay,
+  HF ratio, two shelves, diffusion, density), `EnvironmentReverb` stage last in the encoder chain
+  with the bus trims, toggles under `Fidelity.EnvironmentReverb*`, tests; symbols in
+  `GameSymbols.Bind`. v1.0 must include it (operator's stated goal: the host-side output is
+  exactly what others hear).
+- Tag: `[doc->REQ-MIXER-RESYNTH]`, `[impl->…]`, `[unit->…]`.
+- Operator verification: hallway A/B (stand where the friends' reverb was heard, talk; then
+  outdoors), `Environment reverb:` log line present, stage `live` in the stats line.
+
 ### T4 — Release v1.0
 
 - Per `docs/RELEASE-RUNBOOK.md`: gates, CHANGELOG cut, version bump, tag, local Release build
@@ -247,6 +263,39 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   main menu and `TravelEar offset: N ms` in the pause menu once the Helper has streamed; the row
   cannot be selected with a controller; the log shows `Offset row: added to the Audio settings`
   twice (main menu, pause menu) and no `Offset row: unavailable` warning.
+
+- **T2b built** (2026-09-08): background agent's bodies read (`docs/reference/
+  big-walk-environment-reverb.md`: `AudioDynamicReverb.UpdateReverb` writes fourteen SFX Reverb
+  floats on the main mixer every LateUpdate from `RoomSize / Outdoorness / ReverbTime /
+  Diffusion`, e.g. `Room = -150 - 400 O - 200 RS mB`, `DecayTime = clamp(15.9 RT^4 + 0.1, 0.1,
+  16)`, `DryLevel = -150 - 250 RS`; the mixer assets read with UnityPy give the voice's route:
+  voice mixer `Dry` -3 dB -> main `Voice` -> `VOICE DRY BUS` -6 dB to `Master Dry` and `VOICE WET
+  BUS` 0 dB into the reverb, whose `DryLevel` adds a second dry copy; the per-voice sends are
+  pre-fader, `ReverbFallWet` feeds a fixed 4 s return and `ReverbBoostWet` a fully-wet copy of the
+  same environment reverb; `High{n}` is a 250 Hz band level, not a 3 kHz shelf, irrelevant at
+  0 dB). One erratum fixed in the doc: outdoors `Reflections` is -8370 mB, the clamp bites only
+  at RS >= 0.94. Built: Core `EnvironmentReverbParams` (fourteen floats + `MasterWet` + voice
+  slider, `FromListener` = the formulas, Unity's clamps, mB gains), `SfxReverb` (pre-delay line,
+  six-tap early FIR at `ReflectDelay`, eight combs / four allpasses `ReverbDelay` later; RT60 from
+  `DecayTime`, in-loop damping from `DecayHFRatio` (ratio > 1 capped), comb spread from `Density`,
+  allpass coefficient from `Diffusion`, RBJ high/low shelves for `RoomHF`/`RoomLF` at the two
+  references; `Biquad` gained `LowShelf`), `EnvironmentReverb` stage (`x = -3 dB voice; out =
+  -6 dB x + MasterWet (10^(DryLevel/2000) x + reverb(x))`, clamped). Renderer reads the live
+  floats each frame from `AudioDynamicReverb` (or `AudioBasicReverb` in Basic mode, logged once),
+  `Bypass` -> dry 0 dB / no room, `Mixer.GetFloat("MasterWet")`, `VoiceNormalVol *
+  VoiceAudioSettingsVol`; applies the stage last, after the megaphone mix; resets its tail with
+  the mixer stage's on a 2 s gap; `Environment reverb:` line every 10 s with the four scalars and
+  all fourteen floats; stats line gains `environment reverb: live/bypassed, room, decay, dry,
+  return, frames`. Symbols: `AudioManager.AudioBasicReverb`, `AudioDynamicReverb.Bypass /
+  RoomSize / ReverbTime / Diffusion / DSP_*` (14), `AudioBasicReverb.Bypass` + the 14 bare names,
+  `GlobalAudioEffects.Mixer / VoiceNormalVol / VoiceAudioSettingsVol` (all confirmed in the
+  interop metadata before binding). Config `Fidelity.EnvironmentReverb` (on), `EnvironmentReverbDryCopy`
+  (on), `EnvironmentReverbBusGains` (on), `EnvironmentReverbVoiceSlider` (off). Not done: the
+  doc's proposal to re-base T1's fall/boost sends on `SfxReverb` (fixed 4 s fall return; the
+  boost as a fully-wet copy of the environment set) stays a T5 seed; the master Duck limiter
+  (-3 dB, 10:1) is not ported. 19 new tests (formulas vs the doc's corridor, clamps, onset
+  delays, room scaling, RT60, HF ratio, both shelves, bypass, bus arithmetic, toggles, clamp).
+  Operator check owed: hallway A/B.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

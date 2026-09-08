@@ -94,6 +94,27 @@ internal sealed class LocalVoiceRenderer
     private bool _reportedMegaphoneError;
     private long _megaphoneBroadcasts;
     private long _megaphoneFrames;
+
+    // Environment reverb (REQ-MIXER-RESYNTH, M3 T2b). Main thread: _envSnapshot is the listener's
+    // live SFX Reverb parameter set as the game wrote it this frame; encoder thread: _env applies
+    // it last, on the sum of the Clean and Megaphone voices.
+    private readonly EnvironmentReverbToggles _envToggles;
+    private EnvironmentReverb _env;
+    private volatile EnvironmentReverbSnapshot _envSnapshot;
+    private volatile bool _envReadable;
+    private bool _reportedEnvError;
+    private bool _reportedBasicMode;
+    private float _nextEnvLog;
+    private sealed class EnvironmentReverbSnapshot
+    {
+        public readonly EnvironmentReverbParams Params;
+        public readonly bool Dynamic;
+        public readonly float RoomSize, Outdoorness, ReverbTime, Diffusion;
+        public EnvironmentReverbSnapshot(in EnvironmentReverbParams p, bool dynamic, float roomSize, float outdoorness, float reverbTime, float diffusion)
+        {
+            Params = p; Dynamic = dynamic; RoomSize = roomSize; Outdoorness = outdoorness; ReverbTime = reverbTime; Diffusion = diffusion;
+        }
+    }
     private readonly float _forwardMeters;
     private readonly bool _gateEnabled;
     private readonly TransmitGate _gate = new();
@@ -148,8 +169,9 @@ internal sealed class LocalVoiceRenderer
     public static volatile int SampleRate;
 
     public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet,
-        MixerStageToggles mixerToggles, float reverbDecaySeconds, MegaphoneToggles megaphoneToggles, MegaphoneMix megaphoneMix)
+        MixerStageToggles mixerToggles, float reverbDecaySeconds, MegaphoneToggles megaphoneToggles, MegaphoneMix megaphoneMix, EnvironmentReverbToggles environmentToggles)
     {
+        _envToggles = environmentToggles;
         _log = log;
         _pump = pump;
         _feed = feed;
@@ -190,6 +212,7 @@ internal sealed class LocalVoiceRenderer
         {
             UpdateMixerStage();
             UpdateMegaphone();
+            UpdateEnvironmentReverb();
         }
         if (_feed == SinkFeedPoint.VoicePlayer)
         {
@@ -218,9 +241,11 @@ internal sealed class LocalVoiceRenderer
         _eqCore = _eqDryWet > 0f ? PeakingEq.GameVoiceEq(_eqDryWet, LocalVoiceDecoder.SampleRate) : null;
         _mixerStage = new MixerStage(LocalVoiceDecoder.SampleRate, _reverbDecaySeconds);
         _megaphone = new MegaphoneVoice(LocalVoiceDecoder.SampleRate);
+        _env = new EnvironmentReverb(LocalVoiceDecoder.SampleRate);
         OutboundVoiceTap.FrameEncoded += OnFrameEncoded;
         _log.LogInfo($"Local Voice: encoder feed built; {LocalVoiceDecoder.SampleRate} Hz mono straight to the Sink ring ({SinkFeed.Ring.Capacity} samples); voice EQ {(_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core port)")}; " +
-                     $"mixer stage {(_mixerToggles.Master ? $"on (dry {_mixerToggles.Dry}, high {_mixerToggles.High}, fall {_mixerToggles.ReverbFall}, boost {_mixerToggles.ReverbBoost}, reverb {_reverbDecaySeconds:F1} s)" : "off")}.");
+                     $"mixer stage {(_mixerToggles.Master ? $"on (dry {_mixerToggles.Dry}, high {_mixerToggles.High}, fall {_mixerToggles.ReverbFall}, boost {_mixerToggles.ReverbBoost}, reverb {_reverbDecaySeconds:F1} s)" : "off")}; " +
+                     $"environment reverb {(_envToggles.Master ? $"on (dry copy {_envToggles.DryCopy}, bus gains {_envToggles.BusGains}, voice slider {_envToggles.VoiceSlider})" : "off")}.");
         _built = true;
     }
 
@@ -267,6 +292,81 @@ internal sealed class LocalVoiceRenderer
             if (_reportedMixerError) return;
             _reportedMixerError = true;
             _log.LogWarning($"Mixer stage: inputs unreadable, stage bypassed: {e.Message}");
+        }
+    }
+
+    // [impl->REQ-MIXER-RESYNTH]
+    // [impl->REQ-HAZARD-NO-PARTIAL-FIDELITY]
+    /// <summary>
+    /// Main thread, once per frame: the listener's environment reverb exactly as the game wrote it
+    /// this frame, the fourteen SFX Reverb floats from <c>AudioDynamicReverb</c> (Dynamic mode) or
+    /// <c>AudioBasicReverb</c> (Basic mode), <c>Bypass</c> (which the game answers with dry 0 dB and
+    /// no room), the Master Wet return level and the voice slider. No smoothing of the mod's own:
+    /// the game smooths its inputs. Unreadable inputs bypass the stage, logged once.
+    /// </summary>
+    private void UpdateEnvironmentReverb()
+    {
+        if (!_envToggles.Master) return;
+        try
+        {
+            var am = AudioManager.Instance;
+            var gae = GlobalAudioEffects.Instance;
+            var mixer = gae?.Mixer;
+            if (am is null || gae is null || mixer is null || !mixer.GetFloat("MasterWet", out var masterWetDb))
+            {
+                _envReadable = false;
+                return;
+            }
+            var voiceBusDb = 20f * Mathf.Log10(Mathf.Max(gae.VoiceNormalVol * gae.VoiceAudioSettingsVol, 1e-4f));
+            EnvironmentReverbSnapshot snapshot;
+            var adr = am.AudioDynamicReverb;
+            if (adr is not null)
+            {
+                var p = adr.Bypass
+                    ? EnvironmentReverbParams.Bypassed with { MasterWetDb = masterWetDb, VoiceBusDb = voiceBusDb }
+                    : new EnvironmentReverbParams(adr.DSP_DryLevel, adr.DSP_Room, adr.DSP_RoomHF, adr.DSP_RoomLF, adr.DSP_DecayTime, adr.DSP_DecayHFRatio,
+                        adr.DSP_Reflections, adr.DSP_ReflectDelay, adr.DSP_Reverb, adr.DSP_ReverbDelay, adr.DSP_HFReference, adr.DSP_LFReference,
+                        adr.DSP_Diffusion, adr.DSP_Density, masterWetDb, voiceBusDb);
+                snapshot = new EnvironmentReverbSnapshot(p, true, adr.RoomSize, adr.Outdoorness, adr.ReverbTime, adr.Diffusion);
+            }
+            else
+            {
+                var abr = am.AudioBasicReverb;
+                if (abr is null)
+                {
+                    _envReadable = false;
+                    return;
+                }
+                if (!_reportedBasicMode)
+                {
+                    _reportedBasicMode = true;
+                    _log.LogInfo("Environment reverb: the game is in Basic reverb mode; reading AudioBasicReverb.");
+                }
+                var p = abr.Bypass
+                    ? EnvironmentReverbParams.Bypassed with { MasterWetDb = masterWetDb, VoiceBusDb = voiceBusDb }
+                    : new EnvironmentReverbParams(abr.DryLevel, abr.Room, abr.RoomHF, abr.RoomLF, abr.DecayTime, abr.DecayHFRatio,
+                        abr.Reflections, abr.ReflectDelay, abr.Reverb, abr.ReverbDelay, abr.HFReference, abr.LFReference,
+                        abr.Diffusion, abr.Density, masterWetDb, voiceBusDb);
+                snapshot = new EnvironmentReverbSnapshot(p, false, 0f, 0f, 0f, 0f);
+            }
+            _envSnapshot = snapshot;
+            _envReadable = true;
+            if (Time.unscaledTime >= _nextEnvLog)
+            {
+                _nextEnvLog = Time.unscaledTime + StatsIntervalSeconds;
+                var q = snapshot.Params;
+                _log.LogInfo($"Environment reverb: {(snapshot.Dynamic ? $"RS {snapshot.RoomSize:F2} O {snapshot.Outdoorness:F2} RT {snapshot.ReverbTime:F2} D {snapshot.Diffusion:F2}" : "basic mode")}; " +
+                             $"DryLevel {q.DryLevelMb:F0} Room {q.RoomMb:F0} RoomHF {q.RoomHfMb:F0} RoomLF {q.RoomLfMb:F0} mB, Decay {q.DecayTimeS:F2} s x{q.DecayHfRatio:F2}, " +
+                             $"Reflections {q.ReflectionsMb:F0} mB @{q.ReflectDelayS * 1000f:F0} ms, Reverb {q.ReverbMb:F0} mB @{q.ReverbDelayS * 1000f:F0} ms, " +
+                             $"HF {q.HfReferenceHz:F0} LF {q.LfReferenceHz:F0} Hz, Diffusion {q.DiffusionPct:F0} Density {q.DensityPct:F0}; MasterWet {q.MasterWetDb:F1} dB, voice {q.VoiceBusDb:F1} dB.");
+            }
+        }
+        catch (Exception e)
+        {
+            _envReadable = false;
+            if (_reportedEnvError) return;
+            _reportedEnvError = true;
+            _log.LogWarning($"Environment reverb: inputs unreadable, stage bypassed: {e.Message}");
         }
     }
 
@@ -511,7 +611,7 @@ internal sealed class LocalVoiceRenderer
                 {
                     _dynamics.Reset(_makeupGain); // the game's session-change reset
                     _eqCore?.Reset();
-                    if (gapMs > 2000) _mixerStage?.Reset(); // a long gap: drop the reverb tail too
+                    if (gapMs > 2000) { _mixerStage?.Reset(); _env?.Reset(); } // a long gap: drop the reverb tails too
                 }
                 ProcessRemotePath(count);
                 if (_feed == SinkFeedPoint.Encoder)
@@ -535,6 +635,11 @@ internal sealed class LocalVoiceRenderer
                         _megaphoneFrames++;
                     }
                     else _megaphoneFrames = 0;
+                    // [impl->REQ-MIXER-RESYNTH]
+                    // The listener's environment reverb, last: the Clean and Megaphone voices enter it together.
+                    var env = _envSnapshot;
+                    if (_env is not null && _envReadable && env is not null)
+                        _env.Process(frame, env.Params, _envToggles);
                     SinkFeed.Write(frame, capturedAt);
                 }
                 else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
@@ -830,6 +935,9 @@ internal sealed class LocalVoiceRenderer
             path += _megaphoneToggles.Master
                 ? $"; megaphone: {(_megaphoneActive ? "broadcasting" : _megaphoneHeld ? "held" : "none")}, broadcasts {_megaphoneBroadcasts}, frames {_megaphone?.Frames ?? 0}, mix {_megaphoneMix}, reduction {_megaphone?.CompressorReductionDb ?? 0:F1}/{_megaphone?.PostCompressorReductionDb ?? 0:F1} dB"
                 : "; megaphone: off";
+            path += _envToggles.Master
+                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, frames {_env?.Frames ?? 0}"
+                : "; environment reverb: off";
         }
         _log.LogInfo(
             $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), errors {Interlocked.Read(ref _decodeErrors)}; " +

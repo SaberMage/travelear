@@ -52,6 +52,12 @@ Stage** (reverb sends, dry/high trims, megaphone character, compressors). Cannot
 mod re-synthesizes it (see [ADR-0002](docs/adr/0002-mixer-stage-resynthesis.md)). (Avoid:
 post-processing, mixer effects.)
 
+**Environment Reverb** — the listener-side room reverb every nearby voice carries on a peer's
+machine: the main mixer's `Master Wet` SFX Reverb, re-parameterized every frame from the
+listener's surroundings (`AudioDynamicReverb`). Part of the **Mixer Stage** as heard, but driven
+by the listener's room, not the speaker's channel; the mod reads the game's fourteen live
+parameters and re-synthesizes it last in the chain. (Avoid: room tone, ambience.)
+
 **Tap** — the point in the game's voice pipeline where **Local Voice** is captured for the
 **Sink** instead of being mixed into game audio. The Tap always zeroes what it copies, so the
 game never plays it. Since [ADR-0005](docs/adr/0005-sink-fed-from-the-encoder-thread.md) the

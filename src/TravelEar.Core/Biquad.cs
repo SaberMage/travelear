@@ -9,7 +9,7 @@ namespace TravelEar.Core;
 /// </summary>
 public sealed class Biquad
 {
-    public enum Kind { LowPass, HighPass, HighShelf, PeakingEq }
+    public enum Kind { LowPass, HighPass, HighShelf, PeakingEq, LowShelf }
 
     private const float DenormalThreshold = 1e-15f;
 
@@ -31,7 +31,7 @@ public sealed class Biquad
         Configure(Kind.PeakingEq, 1000f, 0.7f, 0f, 1f, 0f);
     }
 
-    /// <summary>The game's coefficient table (<c>CoefficientCalculation</c>) for the four kinds the mod uses.</summary>
+    /// <summary>The game's coefficient table (<c>CoefficientCalculation</c>) for the four kinds the mod uses, plus the RBJ low shelf (the environment reverb's <c>RoomLF</c>).</summary>
     public void Configure(Kind type, float frequencyHz, float q, float gainDb, float vol, float dryWet)
     {
         Type = type;
@@ -65,6 +65,14 @@ public sealed class Biquad
                 a0 = (a + 1f) - (a - 1f) * cos + 2f * sqrtAAlpha;
                 a1 = 2f * ((a - 1f) - (a + 1f) * cos);
                 a2 = (a + 1f) - (a - 1f) * cos - 2f * sqrtAAlpha;
+                break;
+            case Kind.LowShelf:
+                b0 = a * ((a + 1f) - (a - 1f) * cos + 2f * sqrtAAlpha);
+                b1 = 2f * a * ((a - 1f) - (a + 1f) * cos);
+                b2 = a * ((a + 1f) - (a - 1f) * cos - 2f * sqrtAAlpha);
+                a0 = (a + 1f) + (a - 1f) * cos + 2f * sqrtAAlpha;
+                a1 = -2f * ((a - 1f) + (a + 1f) * cos);
+                a2 = (a + 1f) + (a - 1f) * cos - 2f * sqrtAAlpha;
                 break;
             default:
                 b0 = 1f + alpha * a; b1 = -2f * cos; b2 = 1f - alpha * a;
