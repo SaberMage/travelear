@@ -75,7 +75,9 @@ public sealed class Plugin : BasePlugin
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
         var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
-        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value);
+        var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value,
+            megaphone, Settings.MegaphoneMix.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -102,6 +104,15 @@ public enum SinkFeedPoint
     VoicePlayer,
 }
 
+/// <summary>How the Megaphone voice combines with the direct voice (config <c>Fidelity.MegaphoneMix</c>).</summary>
+public enum MegaphoneMix
+{
+    /// <summary>Megaphone output added to the direct voice: what a listener beside the holder hears.</summary>
+    Add,
+    /// <summary>Only the megaphone output while broadcasting.</summary>
+    Replace,
+}
+
 /// <summary>User-facing settings. Every entry is surfaced automatically by ModSettingsMenu if installed.</summary>
 internal sealed class PluginConfig
 {
@@ -116,6 +127,11 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> MixerReverbFall { get; }
     public ConfigEntry<bool> MixerReverbBoost { get; }
     public ConfigEntry<float> ReverbDecaySeconds { get; }
+    public ConfigEntry<bool> MegaphoneVoice { get; }
+    public ConfigEntry<bool> MegaphoneCrusher { get; }
+    public ConfigEntry<bool> MegaphoneHighPass { get; }
+    public ConfigEntry<bool> MegaphoneCompressors { get; }
+    public ConfigEntry<MegaphoneMix> MegaphoneMix { get; }
     public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<float> TransmitFadeOutMs { get; }
     public ConfigEntry<bool> Downmix { get; }
@@ -148,6 +164,17 @@ internal sealed class PluginConfig
             "Apply the reverb boost send (ReverbBoostWet{n}): zero at your own ears by the game's formula; kept for A/B.");
         ReverbDecaySeconds = file.Bind("Fidelity", "ReverbDecaySeconds", 1.5f,
             "Decay time (RT60) of the approximate reverb behind the sends, in seconds. Tune by ear against a second-client recording.");
+        // [impl->REQ-RENDER-MEGAPHONE]
+        MegaphoneVoice = file.Bind("Fidelity", "MegaphoneVoice", true,
+            "Render the megaphone's output while you hold and use one: the game's bit-crusher and 300 Hz high-pass, then its two mixer compressors, as a listener beside you hears it. Master switch for the Megaphone* toggles.");
+        MegaphoneCrusher = file.Bind("Fidelity", "MegaphoneCrusher", true,
+            "The megaphone's sample-hold crusher (4000 Hz, half wet, half smoothed). Exact port.");
+        MegaphoneHighPass = file.Bind("Fidelity", "MegaphoneHighPass", true,
+            "The megaphone's 300 Hz high-pass. Exact port.");
+        MegaphoneCompressors = file.Bind("Fidelity", "MegaphoneCompressors", true,
+            "The megaphone mixer's compressor (-25 dB, +6 dB make-up) and post-compressor (-15 dB). Approximate.");
+        MegaphoneMix = file.Bind("Fidelity", "MegaphoneMix", TravelEar.MegaphoneMix.Add,
+            "Add = the megaphone output on top of your direct voice, as a listener beside you hears both. Replace = only the megaphone output while broadcasting.");
         TransmitGate = file.Bind("Fidelity", "TransmitGate", true,
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         TransmitFadeOutMs = file.Bind("Fidelity", "TransmitFadeOutMs", 0f,

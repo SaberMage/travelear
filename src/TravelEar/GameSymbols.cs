@@ -96,6 +96,15 @@ internal static class GameSymbols
         Property(missing, typeof(AudioManager), "AudioDynamicReverb");
         Property(missing, typeof(AudioDynamicReverb), "Outdoorness");
 
+        // Megaphone state (M3 T2): the held prop's radio assigner and its broadcast state.
+        Property(missing, typeof(PlayerCharacter), "hands");
+        Property(missing, typeof(PlayerHands), "heldProp");
+        Property(missing, typeof(Prop), "radioVoiceAssigner");
+        Property(missing, typeof(RadioVoiceAssigner), "_cachedVoiceType");
+        Property(missing, typeof(RadioVoiceAssigner), "isBroadcasting");
+        Property(missing, typeof(RadioVoiceAssigner), "latestBroadcastPlayer");
+        Property(missing, typeof(RadioVoiceAssigner), "roomName");
+
         // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
         IsBound = missing.Complete(out var report);
         if (IsBound) log.LogInfo(report);

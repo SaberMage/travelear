@@ -186,6 +186,31 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   second or two of landing; the log shows `Mixer stage: falling`); with everything else at the
   Self-Ear being unity, `MixerStage` on/off should be inaudible when not falling. Reverb character
   stays approximate until a second-client recording exists (question 4).
+- **T2 built** (2026-09-08): question 3's recipe implemented on the main thread
+  (`WorldManager.localPlayerCharacter.hands.heldProp.radioVoiceAssigner`, `_cachedVoiceType ==
+  Megaphone`, `isBroadcasting && latestBroadcastPlayer == me` by pointer; symbols in
+  `GameSymbols.Bind`; "picked up / put down" and "broadcast started / ended" log lines, first 20).
+  Rendering: a listener beside the holder hears the direct voice plus the prop's Megaphone
+  `VoicePlayer` output, which reads the same dynamics-processed ring, so the mod renders Core
+  `MegaphoneVoice` from the processed frame and adds it (`Fidelity.MegaphoneMix` = Add default /
+  Replace). Chain = `VoicePlayer.Update`'s remote-holder branch at d = 0: Core `BitCrusher` (ported
+  from the managed Burst fallback `Process$BurstManaged`: per hold of `sampleRate / crushRate`
+  samples, quantize the first sample, ramp toward the next hold's by `smooth`, mix `dryWet`;
+  `ampVal = 2^(bits-1)`, `crushScale = log(bits+1)/log(25)/ampVal`, constants 1.0 / 25.0 / 0.5 /
+  -1.0 read from GameAssembly.dll `.rdata`; at the game's 24 bits the quantization is inaudible
+  and the 4000 Hz hold is the effect), 300 Hz Q 0.4 high-pass (`Biquad`), then the mixer's
+  compressor (-25 dB, +6 dB) and post-compressor (-15 dB, release 0.25 clamped to FMOD's 10 ms
+  floor) as Core `Compressor` (FMOD-style 2.5:1 hard knee, attack-timed peak detector;
+  approximate); reverb send off, HP/LP open, channel wet 0 dB / dry -80 dB at that distance, so
+  nothing else applies. Toggles `Fidelity.MegaphoneCrusher/HighPass/Compressors` under
+  `MegaphoneVoice`. 8 + 4 + 5 tests; `REQ-RENDER-MEGAPHONE` doc + impl + unit. 187 tests.
+  Operator check owed: pick up a megaphone in a solo session, use it while talking, drop it: the
+  Sink carries the crushed, thinned, squashed megaphone voice on top of the direct voice while
+  broadcasting and only the direct voice otherwise; the log shows `Megaphone: picked up`,
+  `broadcast started (#1)`, `broadcast ended`, `put down`; the stats line's `megaphone:` segment
+  counts broadcasts and frames. Open: whether the megaphone prefab's `roomName` token also opens
+  a peer-facing channel the transmit gate should count (it should: token rooms are part of signal
+  (a) since M2), to be confirmed from the `Transmit signal` lines during the run.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

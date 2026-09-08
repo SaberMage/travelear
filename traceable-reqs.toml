@@ -64,7 +64,7 @@ required_stages = ["doc", "impl", "unit"]  # M2 T1: VoiceDynamics (gain ramp, co
 [[requirements]]
 id = "REQ-RENDER-MEGAPHONE"
 title = "Megaphone Voice renders when the local player holds the megaphone and reverts to Clean Voice when they drop it"
-required_stages = []
+required_stages = ["doc", "impl", "unit"]  # M3 T2: MegaphoneVoice (BitCrusher port, 300 Hz Biquad high-pass, two Compressor approximations) mixed in while the held megaphone's RadioVoiceAssigner is broadcasting; toggles Fidelity.Megaphone*
 
 [[requirements]]
 id = "REQ-MIXER-RESYNTH"

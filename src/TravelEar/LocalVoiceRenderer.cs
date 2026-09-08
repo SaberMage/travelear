@@ -80,6 +80,20 @@ internal sealed class LocalVoiceRenderer
     private bool _reportedMixerError;
     private bool _lastInDanger;
     private long _fallEvents;
+
+    // Megaphone voice (REQ-RENDER-MEGAPHONE). Main thread: _megaphoneActive from the held prop's
+    // radio assigner; encoder thread: _megaphone renders into _megaphoneScratch and mixes.
+    private readonly MegaphoneToggles _megaphoneToggles;
+    private readonly MegaphoneMix _megaphoneMix;
+    private MegaphoneVoice _megaphone;
+    private readonly float[] _megaphoneScratch = new float[8192];
+    private volatile bool _megaphoneActive;
+    private volatile bool _megaphoneHeld;
+    private bool _lastMegaphoneActive;
+    private bool _lastMegaphoneHeld;
+    private bool _reportedMegaphoneError;
+    private long _megaphoneBroadcasts;
+    private long _megaphoneFrames;
     private readonly float _forwardMeters;
     private readonly bool _gateEnabled;
     private readonly TransmitGate _gate = new();
@@ -134,11 +148,13 @@ internal sealed class LocalVoiceRenderer
     public static volatile int SampleRate;
 
     public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet,
-        MixerStageToggles mixerToggles, float reverbDecaySeconds)
+        MixerStageToggles mixerToggles, float reverbDecaySeconds, MegaphoneToggles megaphoneToggles, MegaphoneMix megaphoneMix)
     {
         _log = log;
         _pump = pump;
         _feed = feed;
+        _megaphoneToggles = megaphoneToggles;
+        _megaphoneMix = megaphoneMix;
         _mixerToggles = mixerToggles;
         _reverbDecaySeconds = reverbDecaySeconds > 0 && !float.IsNaN(reverbDecaySeconds) ? reverbDecaySeconds : 1.5f;
         _forwardMeters = forwardMeters;
@@ -170,7 +186,11 @@ internal sealed class LocalVoiceRenderer
         }
         SampleTransmitSignal();
         UpdateMakeupGain();
-        if (_feed == SinkFeedPoint.Encoder) UpdateMixerStage();
+        if (_feed == SinkFeedPoint.Encoder)
+        {
+            UpdateMixerStage();
+            UpdateMegaphone();
+        }
         if (_feed == SinkFeedPoint.VoicePlayer)
         {
             GuardLag();
@@ -197,6 +217,7 @@ internal sealed class LocalVoiceRenderer
         _decoder = new LocalVoiceDecoder();
         _eqCore = _eqDryWet > 0f ? PeakingEq.GameVoiceEq(_eqDryWet, LocalVoiceDecoder.SampleRate) : null;
         _mixerStage = new MixerStage(LocalVoiceDecoder.SampleRate, _reverbDecaySeconds);
+        _megaphone = new MegaphoneVoice(LocalVoiceDecoder.SampleRate);
         OutboundVoiceTap.FrameEncoded += OnFrameEncoded;
         _log.LogInfo($"Local Voice: encoder feed built; {LocalVoiceDecoder.SampleRate} Hz mono straight to the Sink ring ({SinkFeed.Ring.Capacity} samples); voice EQ {(_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core port)")}; " +
                      $"mixer stage {(_mixerToggles.Master ? $"on (dry {_mixerToggles.Dry}, high {_mixerToggles.High}, fall {_mixerToggles.ReverbFall}, boost {_mixerToggles.ReverbBoost}, reverb {_reverbDecaySeconds:F1} s)" : "off")}.");
@@ -246,6 +267,57 @@ internal sealed class LocalVoiceRenderer
             if (_reportedMixerError) return;
             _reportedMixerError = true;
             _log.LogWarning($"Mixer stage: inputs unreadable, stage bypassed: {e.Message}");
+        }
+    }
+
+    // [impl->REQ-RENDER-MEGAPHONE]
+    /// <summary>
+    /// Main thread, once per frame: is the local player broadcasting through a held megaphone? The
+    /// game's own state (docs/reference/big-walk-local-voice-wiring.md section 4): the held prop's
+    /// <c>RadioVoiceAssigner</c> whose prefab <c>VoicePlayer</c> is of the Megaphone type, with
+    /// <c>isBroadcasting</c> set by the networked peck and cleared once Dissonance stops reporting
+    /// speech into its room, and <c>latestBroadcastPlayer</c> being us. The game hard-switches its
+    /// megaphone player on the same edges, so the Sink follows within a frame. Unreadable state
+    /// means no megaphone voice, logged once.
+    /// </summary>
+    private void UpdateMegaphone()
+    {
+        if (!_megaphoneToggles.Master) return;
+        var held = false;
+        var active = false;
+        try
+        {
+            var me = WorldManager.localPlayerCharacter;
+            var rva = me?.hands?.heldProp?.radioVoiceAssigner;
+            if (rva is not null && rva._cachedVoiceType == VoicePlayer.VoicePlayerType.Megaphone)
+            {
+                held = true;
+                var broadcaster = rva.latestBroadcastPlayer;
+                active = rva.isBroadcasting && broadcaster is not null && broadcaster.Pointer == me.Pointer;
+            }
+        }
+        catch (Exception e)
+        {
+            if (!_reportedMegaphoneError)
+            {
+                _reportedMegaphoneError = true;
+                _log.LogWarning($"Megaphone: state unreadable, megaphone voice off: {e.Message}");
+            }
+            held = false;
+            active = false;
+        }
+        _megaphoneHeld = held;
+        _megaphoneActive = active;
+        if (held != _lastMegaphoneHeld)
+        {
+            _lastMegaphoneHeld = held;
+            if (_megaphoneBroadcasts < 20) _log.LogInfo($"Megaphone: {(held ? "picked up" : "put down")}.");
+        }
+        if (active != _lastMegaphoneActive)
+        {
+            _lastMegaphoneActive = active;
+            if (active) _megaphoneBroadcasts++;
+            if (_megaphoneBroadcasts <= 20) _log.LogInfo($"Megaphone: broadcast {(active ? "started" : "ended")} (#{_megaphoneBroadcasts}); Sink {(active ? $"switches to {_megaphoneMix}" : "back to the direct voice")}.");
         }
     }
 
@@ -450,6 +522,19 @@ internal sealed class LocalVoiceRenderer
                     // [impl->REQ-MIXER-RESYNTH]
                     if (_mixerStage is not null && _mixerInputsReadable)
                         _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
+                    // [impl->REQ-RENDER-MEGAPHONE]
+                    // The megaphone's output is what its own player renders from the same processed
+                    // voice; a listener beside the holder hears it on top of the direct voice.
+                    if (_megaphone is not null && _megaphoneActive)
+                    {
+                        if (gapMs > BurstGapMs || _megaphoneFrames == 0) _megaphone.Reset();
+                        var mega = _megaphoneScratch.AsSpan(0, frame.Length);
+                        _megaphone.Process(frame, mega, _megaphoneToggles);
+                        if (_megaphoneMix == MegaphoneMix.Replace) mega.CopyTo(frame);
+                        else for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] + mega[i], -1f, 1f);
+                        _megaphoneFrames++;
+                    }
+                    else _megaphoneFrames = 0;
                     SinkFeed.Write(frame, capturedAt);
                 }
                 else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
@@ -742,6 +827,9 @@ internal sealed class LocalVoiceRenderer
             path += _mixerToggles.Master
                 ? $"; mixer stage: {(_mixerInputsReadable ? "live" : "bypassed (inputs unreadable)")}, dry {_mixerDryDb:F1} dB, high {_mixerHighDb:F1} dB, fall {_mixerFallDb:F1} dB, boost {_mixerBoostDb:F1} dB, falls {_fallEvents}, frames {_mixerStage.Frames}"
                 : "; mixer stage: off";
+            path += _megaphoneToggles.Master
+                ? $"; megaphone: {(_megaphoneActive ? "broadcasting" : _megaphoneHeld ? "held" : "none")}, broadcasts {_megaphoneBroadcasts}, frames {_megaphone?.Frames ?? 0}, mix {_megaphoneMix}, reduction {_megaphone?.CompressorReductionDb ?? 0:F1}/{_megaphone?.PostCompressorReductionDb ?? 0:F1} dB"
+                : "; megaphone: off";
         }
         _log.LogInfo(
             $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), errors {Interlocked.Read(ref _decodeErrors)}; " +
