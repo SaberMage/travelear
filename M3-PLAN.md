@@ -211,6 +211,21 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   counts broadcasts and frames. Open: whether the megaphone prefab's `roomName` token also opens
   a peer-facing channel the transmit gate should count (it should: token rooms are part of signal
   (a) since M2), to be confirmed from the `Transmit signal` lines during the run.
+- **M3 run 2** (2026-09-08 04:15-04:17 local, operator solo run on `1d10acd`, default feed): the
+  operator did not fall or use a megaphone, so neither T1 nor T2 was exercised: `falls 0`,
+  `megaphone: none, broadcasts 0`, no `Mixer stage: falling` or `Megaphone:` lines, `Transmit signal`
+  rooms `[Echo]` only (the token-room question stays open). Counters clean: 974 frames encoded =
+  decoded = sent, `dropped 0`, `underruns 0`, `errors 0`; Helper `underruns 0, starves 0, trims 0`,
+  1040 frames. `Offset:` 198-222 ms (per-frame 147-261 ms), as in run 1. Mixer stage `live`, dry
+  0.0 dB, high -0.0 dB, fall/boost -80 dB all run, so `MixerStage.Process` was the identity (a -80 dB
+  send maps to gain 0, the shelf is skipped below 0.01 dB) and the megaphone chain never ran.
+  Operator's ear: Local Voice audible, no reverb (none was triggered), and a **new medium-low
+  buzz accompanying speech** compared with run 1. The T1/T2 code cannot be the source in this run
+  (identity, above); the one figure that differs from run 1 is level: `pre-clip peak 1.15`
+  (soft clip engaged; run 1 stayed at 0.44) and Sink `peak 0.925` (run 1: 0.23-0.44), so the lead
+  candidate is the game's own soft clip on louder speech. Open: A/B with `Fidelity.MixerStage`
+  and `Fidelity.MegaphoneVoice` off, an OBS recording of the buzz for spectrum analysis, and the
+  run 2 checks themselves (fall outdoors while talking; hold and use a megaphone).
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 
