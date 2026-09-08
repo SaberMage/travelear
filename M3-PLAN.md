@@ -155,6 +155,17 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   lag); the ~80 s crackle absent from the Sink; `Local Voice stats` shows `encoder feed:` blocks
   climbing with `dropped 0`; Helper.log `starves` only around mutes / menus. Then, if time allows,
   a second run with `SinkFeed = VoicePlayer` to confirm the fallback still works.
+- **M3 run 1** (2026-09-08 03:44-03:47 local, operator solo run on `08cee6d`, default feed):
+  `Sink feed point: Encoder`, `encoder feed built; 48000 Hz mono`, 3505 frames encoded = decoded
+  = sent, `dropped 0`, `underruns 0`, `errors 0`, no warnings. `Offset:` 200-209 ms rolling
+  average all run (per-frame 109-254 ms), against the M2 baseline of 320-360 ms: the provider ring
+  lag is gone as ADR-0005 predicted, and what remains is the Helper's 100 ms prime plus pipe and
+  encode hops. Helper.log every 10 s: `underruns 0, starves 0, trims 0`, backlog 7200-8640
+  samples (150-180 ms, inside the 100-200 ms band). Gate and fade behaved as in M2 (fade 0/150
+  ms, hold 210 ms, 247 signal changes). Makeup gain settled 0.8-3.7 depending on level, as
+  before. Operator's ear (Local Voice audible in the Sink, no in-game double, 80 s crackle
+  absent): asked, verdict appended here when reported. Fallback run (`SinkFeed = VoicePlayer`) not done; deferred to T4's fresh-install
+  run, since the fallback is unchanged code.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 
