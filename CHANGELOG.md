@@ -5,30 +5,47 @@ version becomes that GitHub Release's body verbatim.
 
 ## [Unreleased]
 
+First release. TravelEar renders your own Big Walk voice the way the other players in your
+session hear it and streams it to a separate Windows audio source ("Local Voice") that OBS
+records as its own track. Nothing is mixed into the game's audio.
+
 ### Added
 
-- Project bootstrapped: design, glossary, and working rules.
-- M1: Local Voice end to end. Your own voice, as the game encodes it for peers, is decoded and
-  rendered from just in front of your in-game ears and streamed to the TravelEar Helper, which
-  OBS can capture as its own source. Clean voice only; the game's remote-voice compressor, EQ,
-  and reverb are not applied yet, and the mic noise floor between words is audible.
-- M2 T0: transmit gate. Local Voice is rendered only while peers would receive it (not muted,
-  and the game's voice activation hears speech or a radio/megaphone room is open), so the mic
-  noise floor between words no longer reaches the Helper. The gate opens and closes with the
-  game's own channel fade rather than a cut (`Fidelity.TransmitFadeOutMs` overrides the
-  fade-out). `Fidelity.TransmitGate` turns it off for comparison.
-- M2 fix: the Helper primes 100 ms of audio at stream start and keeps up to 200 ms queued (was
-  30-80 ms, unprimed) so scheduling jitter no longer pads or trims the stream mid-word, and logs
-  its underrun and trim counters every 10 s to `%LOCALAPPDATA%\TravelEar\Helper.log`. The
-  extra queue shows up in the Offset figure.
-- M2 T3: Helper lifecycle and Sink format. The Helper is spawned once per game launch, outside
-  the game's process tree (so OBS cannot fold it into the game's capture), and never respawned;
-  the Sink pipe re-arms no more often than every 5 s. `Sink.Downmix` now works: Local Voice is
-  folded to mono before it reaches the Helper.
-- M2 T2: Offset measurement. The delay from your mic (as the game encodes it) to the Helper's
-  output is measured end to end and logged every 10 s as a rolling average, ready to use as the
-  OBS sync offset. `Fidelity.ReadHeadMarginFrames` tunes the largest part of that delay.
-- M2 T1: remote-path processing. Local Voice now gets the same compressor, soft clip and
-  automatic makeup gain the game applies to every other player's voice, so its level and
-  peaks match what peers hear, and the in-game voice volume slider affects it the same way.
-  `Fidelity.SelfEarEqDryWet` mixes in the game's 400 Hz voice EQ for experimentation.
+- **Local Voice end to end.** The exact Opus packets the game sends to other players are
+  decoded on your machine and passed through the same processing a listener standing next to
+  you gets: makeup gain, compressor and soft clip, the game's voice EQ, then rendered from just
+  in front of your in-game ears.
+- **Environment reverb.** The room reverb other players hear on your voice (hallways, caves,
+  almost nothing outdoors) follows the same live reverb parameters the game writes every frame,
+  including the game's own dry copy and bus levels. `Fidelity.EnvironmentReverb` and its
+  `EnvironmentReverb*` toggles switch each part off for comparison.
+- **Fall reverb.** The reverb peers hear while you fall outdoors is rendered while you fall;
+  `Fidelity.MixerReverbFall` and `Fidelity.ReverbDecaySeconds` control it. The reverb network
+  itself is approximate; levels and timing are the game's.
+- **Megaphone.** Pick up a megaphone and use it: the crushed, thinned and squashed megaphone
+  voice is rendered on top of your direct voice while you broadcast, as a listener beside you
+  hears it. `Fidelity.MegaphoneMix = Replace` keeps only the megaphone output.
+- **Transmit gate.** Local Voice is rendered only while other players would receive it (not
+  muted, and the game's voice activation hears speech or a radio/megaphone room is open), so the
+  mic noise floor between words never reaches the track. The gate opens and closes with the
+  game's own channel fade, not a cut. `Fidelity.TransmitGate` turns it off,
+  `Fidelity.TransmitFadeOutMs` overrides the fade-out.
+- **The Helper.** A small separate process, started with the game, plays Local Voice to a
+  Windows playback device of your choice. In OBS, add **Application Audio Capture** and pick the
+  window "TravelEar for Big Walk" to record it on its own track with no virtual cable driver.
+  By default it plays to your system default output; `Sink.SinkEndpoint` names another device
+  (a spare HDMI output, VB-CABLE, a VoiceMeeter input) if you want it silent. `Sink.Downmix`
+  folds it to mono. The Helper's counters go to `%LOCALAPPDATA%\TravelEar\Helper.log` every 10 s.
+- **Offset.** The delay from your mic to the Helper's output is measured continuously and
+  shown as a read-only "TravelEar offset: N ms" row at the bottom of **Settings > Audio** (main
+  menu and pause menu), and logged as `Offset:` in `BepInEx\LogOutput.log`. Enter it as the OBS
+  **Sync Offset** on your raw mic source to align the two tracks. Expect roughly 200 ms.
+- **Settings.** Every option lives in `BepInEx\config\com.sabermage.travelear.cfg` and shows up
+  in ModSettingsMenu, titled by key. `General.Enabled` switches the whole mod off.
+- **Test tone.** `TravelEar.Helper.exe --tone [--endpoint <part of a device name>]` plays a
+  440 Hz tone so the OBS capture can be checked without launching the game.
+
+### Requirements
+
+- Big Walk on Windows (Steam) with BepInEx 6 IL2CPP, build be.755 or newer.
+- OBS Studio 28 or newer on Windows 10 2004 / Windows 11 for Application Audio Capture.

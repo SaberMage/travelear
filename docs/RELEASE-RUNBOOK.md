@@ -29,20 +29,32 @@
    - A tag with no matching `## [X.Y.Z]` section is a mistake; stop and write one.
 4. **Commit and tag**: commit the bump + changelog, then
    `git tag vX.Y.Z && git push origin main vX.Y.Z`.
-5. **Build the artifacts** on the dev host:
+5. **Build the artifacts** on the dev host: `pwsh scripts/release.ps1`. It checks that
+   `Directory.Build.props` and `Plugin.cs` carry the same version and that `CHANGELOG.md` has a
+   `## [X.Y.Z]` section, builds the plugin (Release) and publishes the Helper (single-file,
+   self-contained win-x64), then assembles `dist/TravelEar-vX.Y.Z/` as a `BepInEx\` tree the
+   user extracts over the game folder:
    ```
-   dotnet build src/TravelEar -c Release
-   dotnet publish src/TravelEar.Helper -c Release
+   BepInEx/plugins/TravelEar/TravelEar.dll
+   BepInEx/plugins/TravelEar/TravelEar.Core.dll
+   BepInEx/TravelEar.Helper/TravelEar.Helper.exe
    ```
-   Assemble `dist/TravelEar/` containing `TravelEar.dll` and `TravelEar.Helper.exe`, zip it as
-   `dist/TravelEar-vX.Y.Z.zip`, and write `dist/SHA256SUMS.txt`.
-6. **Create the GitHub Release** on this repo with the changelog section as the body:
+   The Helper stays outside `plugins` (BepInEx scans every DLL there as a plugin candidate;
+   the plugin's default `Sink.HelperPath` is `BepInEx\TravelEar.Helper\`). The script zips it
+   as `dist/TravelEar-vX.Y.Z.zip`, writes `dist/SHA256SUMS.txt`, and extracts the changelog
+   section to `dist/RELEASE-NOTES-vX.Y.Z.md`.
+6. **Create the GitHub Release** on this repo with the changelog section as the body (the
+   script prints this line filled in):
    ```
    gh release create vX.Y.Z dist/TravelEar-vX.Y.Z.zip dist/SHA256SUMS.txt \
-     --title "TravelEar vX.Y.Z" --notes-file <extracted changelog section>
+     --title "TravelEar vX.Y.Z" --notes-file dist/RELEASE-NOTES-vX.Y.Z.md
    ```
    No signing; the published release is the final artifact.
-7. **Docs**: nothing to publish. `docs-site/` ships in the repo and was verified by the gates.
+7. **Fresh-install check**: extract the zip into a clean BepInEx install (or move the dev
+   copies of `BepInEx\plugins\TravelEar` and `BepInEx\TravelEar.Helper` aside first), launch,
+   one solo run: Helper window appears, `Local Voice stats` and `Offset:` lines in the log, the
+   Settings > Audio row present.
+8. **Docs**: nothing to publish. `docs-site/` ships in the repo and was verified by the gates.
    Thunderstore upload (manifest.json + icon + README) is a manual follow-up once v1 is stable.
 
 ## Notes

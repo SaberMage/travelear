@@ -296,6 +296,24 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   (-3 dB, 10:1) is not ported. 19 new tests (formulas vs the doc's corridor, clamps, onset
   delays, room scaling, RT60, HF ratio, both shelves, bypass, bus arithmetic, toggles, clamp).
   Operator check owed: hallway A/B.
+- **T4 prep** (2026-09-08, while run 3 waits on the operator): the release runbook's artifact
+  layout was stale (no `TravelEar.Core.dll`; the Helper placed under `plugins`, which BepInEx
+  would scan). `scripts/release.ps1` now assembles `dist/TravelEar-vX.Y.Z/` as a `BepInEx\` tree
+  (`plugins/TravelEar/{TravelEar,TravelEar.Core}.dll`, `TravelEar.Helper/TravelEar.Helper.exe`
+  single-file self-contained publish), zips it, writes `SHA256SUMS.txt`, extracts the changelog
+  section to `RELEASE-NOTES-vX.Y.Z.md`, and refuses a version mismatch between
+  `Directory.Build.props` and `Plugin.cs` or a missing `## [X.Y.Z]` section (`-Draft` takes
+  `[Unreleased]` for a smoke test). Runbook steps 5-7 rewritten around it (fresh-install check is
+  step 7). `CHANGELOG.md` `[Unreleased]` rewritten as the v1.0.0 body per the runbook's rules
+  (user-facing only, no milestone codes; Local Voice, environment reverb, fall reverb, megaphone,
+  transmit gate, Helper + OBS, Offset row, settings, test tone, requirements). README: stale
+  "implementation not started" status replaced, install steps match the zip layout, OBS /
+  `SinkEndpoint` / Offset sections, settings table trimmed to the common keys with a link to the
+  full docs-site table. docs-site install page: zip layout, ~200 ms figure, Offset row + the real
+  `Offset:` log line. Not done until run 3 and the operator's word: version bump 0.1.0 -> 1.0.0,
+  the `## [1.0.0]` retitle, tag, `gh release create`, fresh-install run, and question 4's default
+  (T2b made the environment reverb live-driven, so `EnvironmentReverb` on is the proposed default;
+  `MixerReverbFall` stays on with its approximate decay unless the operator objects).
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

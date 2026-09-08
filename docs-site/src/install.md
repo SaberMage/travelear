@@ -7,8 +7,12 @@ newer on Windows 10 2004 or Windows 11.
 
 1. Download `TravelEar-vX.Y.Z.zip` from the
    [latest release](https://github.com/SaberMage/travelear/releases/latest).
-2. Extract it so that you have `Big Walk\BepInEx\plugins\TravelEar\TravelEar.dll` and
-   `Big Walk\BepInEx\plugins\TravelEar\TravelEar.Helper.exe`.
+2. Extract it into the Big Walk folder (the one that contains `Big Walk.exe` and `BepInEx\`).
+   The zip carries its own `BepInEx\` tree, so you end up with
+   `BepInEx\plugins\TravelEar\TravelEar.dll`, `BepInEx\plugins\TravelEar\TravelEar.Core.dll`
+   and `BepInEx\TravelEar.Helper\TravelEar.Helper.exe`. The Helper sits outside `plugins` on
+   purpose (BepInEx would otherwise scan it as a plugin); `Sink.HelperPath` points elsewhere if
+   you move it.
 3. Launch Big Walk once. The mod writes `BepInEx\config\com.sabermage.travelear.cfg` and
    starts the Helper. A minimized window titled **TravelEar for Big Walk** appears in your
    taskbar.
@@ -20,8 +24,7 @@ newer on Windows 10 2004 or Windows 11.
 3. Open **Advanced Audio Properties** and route the new source to its own track (for example
    track 3). Record with that track enabled.
 
-Speak in a session. The new source's meter moves a few dozen milliseconds after your own mic
-meter.
+Speak in a session. The new source's meter moves about 200 ms after your own mic meter.
 
 ## 3. Choose whether you hear it
 
@@ -50,6 +53,8 @@ matches, the Helper lists the active devices in its window and in
 
 ## 4. Align with your raw mic track
 
-TravelEar's track trails your raw mic by the Offset the mod measures. Read it from
-`BepInEx\LogOutput.log` (a line like `TravelEar offset: 68 ms`) and enter that value as the
-**Sync Offset** on your raw mic source if you want both tracks sample-aligned for editing.
+TravelEar's track trails your raw mic by the Offset the mod measures continuously. Read it
+from the last row of **Settings > Audio** (`TravelEar offset: N ms`, in the main menu and the
+pause menu; `measuring` until the Helper has streamed) or from `BepInEx\LogOutput.log` (a line
+like `Offset: 203 ms rolling 10 s average`), and enter that value as the **Sync Offset** on your
+raw mic source if you want both tracks sample-aligned for editing. Expect roughly 200 ms.
