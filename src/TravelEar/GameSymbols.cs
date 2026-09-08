@@ -86,6 +86,16 @@ internal static class GameSymbols
         Property(missing, typeof(VolumeFaderSettings), "_fadeInTicks");
         Property(missing, typeof(VolumeFaderSettings), "_fadeOutTicks");
 
+        // Mixer Stage inputs (M3 T1): the local player's fall state and synced outdoorness, the
+        // listener's dynamic reverb (PlayerVoicePlaybackControl.Update's speaker/listener terms).
+        Property(missing, typeof(WorldManager), "localPlayerCharacter");
+        Property(missing, typeof(PlayerCharacter), "faller");
+        Property(missing, typeof(PlayerCharacter), "playerNetworking");
+        Property(missing, typeof(PlayerFaller), "isInDanger");
+        Property(missing, typeof(PlayerNetworking), "outdoorness");
+        Property(missing, typeof(AudioManager), "AudioDynamicReverb");
+        Property(missing, typeof(AudioDynamicReverb), "Outdoorness");
+
         // One verdict, one line: with any miss the mod stays off (docs/KNOWN-HAZARDS.md 3.1).
         IsBound = missing.Complete(out var report);
         if (IsBound) log.LogInfo(report);

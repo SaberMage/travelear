@@ -166,6 +166,26 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   before. Operator's ear (Local Voice audible in the Sink, no in-game double, 80 s crackle
   absent): asked, verdict appended here when reported. Fallback run (`SinkFeed = VoicePlayer`) not done; deferred to T4's fresh-install
   run, since the fallback is unchanged code.
+- **T1 built** (2026-09-08): the plan's premise ("read the mixer floats for the local player's
+  channel") was wrong, as the M2 report's flag list already said: the game writes `Dry{n}` /
+  `High{n}` / `ReverbFallWet{n}` / `ReverbBoostWet{n}` only from a `PlayerVoicePlaybackControl`,
+  which exists per remote voice on a listener's machine, never for the local player. ADR-0002
+  amended: Core `MixerStageModel` ports the `Update` formulas (11 tests against the doc) and the
+  renderer steps it each frame at the Self-Ear (distance 0, occlusion 0, level) with the speaker
+  terms from the local player: `PlayerFaller.isInDanger` (offset 0x44, confirmed from the getter
+  body) gates the fall send at the synced `PlayerNetworking.outdoorness` (0x14C); by the game's own
+  arithmetic `Dry` = 0 dB, `High` = 0 dB and the boost send is silent at the Self-Ear, so the fall
+  reverb is the only live term. Core `MixerStage` (dry gain, Freeverb-style `Reverb` behind the
+  sends with `Fidelity.ReverbDecaySeconds`, a 3 kHz `Biquad` high shelf for `High`; 9 + 4 + 4
+  tests) runs on the encoder thread after the voice EQ; toggles `Fidelity.MixerDry/High/
+  ReverbFall/ReverbBoost` under the `MixerStage` master; unreadable inputs bypass the stage and log
+  once; the seven input symbols are in `GameSymbols.Bind`. `Mixer stage: falling` log line on each
+  fall (first 10) and a `mixer stage:` segment in the stats line. `REQ-MIXER-RESYNTH` doc + impl +
+  unit. 170 tests. Operator check owed: A/B `Fidelity.MixerReverbFall` by jumping off something
+  outdoors while talking (the Sink should carry a reverb tail while falling that decays within a
+  second or two of landing; the log shows `Mixer stage: falling`); with everything else at the
+  Self-Ear being unity, `MixerStage` on/off should be inaudible when not falling. Reverb character
+  stays approximate until a second-client recording exists (question 4).
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

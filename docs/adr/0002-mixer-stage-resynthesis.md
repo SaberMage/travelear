@@ -2,7 +2,16 @@
 
 ## Status
 
-accepted (2026-09-06)
+accepted (2026-09-06) · amended 2026-09-08 (M3 T1): the "live mixer floats" of the Decision do not
+exist for the local player, because the game only writes `Dry{n}` / `High{n}` /
+`ReverbFallWet{n}` / `ReverbBoostWet{n}` from a `PlayerVoicePlaybackControl`, which a listener
+creates for each *remote* voice. The mod therefore evaluates the same per-frame formulas itself
+(`TravelEar.Core.MixerStageModel`, ported from `PlayerVoicePlaybackControl.Update`) at the Self-Ear,
+with the speaker terms read from the local player (`PlayerFaller.isInDanger`,
+`PlayerNetworking.outdoorness`). `AudioMixer.GetFloat` is not used. The rest of the decision
+(capture the Filter Stage exactly, re-synthesize the Mixer Stage, approximate and calibrate the
+reverb, toggle every effect) stands; the DSP now runs on the encoder thread
+([ADR-0005](0005-sink-fed-from-the-encoder-thread.md)).
 
 ## Context
 

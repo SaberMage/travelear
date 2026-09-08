@@ -69,7 +69,7 @@ required_stages = []
 [[requirements]]
 id = "REQ-MIXER-RESYNTH"
 title = "Mixer Stage effects are re-synthesized from the live mixer floats the game writes, each individually toggleable"
-required_stages = []
+required_stages = ["doc", "impl", "unit"]  # M3 T1: MixerStageModel (the game's per-frame formulas at the Self-Ear) + MixerStage DSP (dry, high cut, reverb sends) + Reverb/Biquad, tests; toggles Fidelity.Mixer*
 
 [[requirements]]
 id = "REQ-TAP-DIVERT"

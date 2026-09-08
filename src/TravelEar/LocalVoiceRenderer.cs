@@ -65,6 +65,21 @@ internal sealed class LocalVoiceRenderer
     private readonly SinkPump _pump;
     private readonly SinkFeedPoint _feed;
     private PeakingEq _eqCore; // encoder thread only (Encoder feed)
+
+    // Mixer Stage (REQ-MIXER-RESYNTH). Main thread: _mixerModel steps the game's formulas from the
+    // local player's state and publishes the four floats; encoder thread: _mixerStage applies them.
+    private readonly MixerStageToggles _mixerToggles;
+    private readonly float _reverbDecaySeconds;
+    private readonly MixerStageModel _mixerModel = new();
+    private MixerStage _mixerStage;
+    private volatile float _mixerDryDb;
+    private volatile float _mixerHighDb;
+    private volatile float _mixerFallDb = MixerStageModel.FloorDb;
+    private volatile float _mixerBoostDb = MixerStageModel.FloorDb;
+    private volatile bool _mixerInputsReadable;
+    private bool _reportedMixerError;
+    private bool _lastInDanger;
+    private long _fallEvents;
     private readonly float _forwardMeters;
     private readonly bool _gateEnabled;
     private readonly TransmitGate _gate = new();
@@ -118,11 +133,14 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet)
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet,
+        MixerStageToggles mixerToggles, float reverbDecaySeconds)
     {
         _log = log;
         _pump = pump;
         _feed = feed;
+        _mixerToggles = mixerToggles;
+        _reverbDecaySeconds = reverbDecaySeconds > 0 && !float.IsNaN(reverbDecaySeconds) ? reverbDecaySeconds : 1.5f;
         _forwardMeters = forwardMeters;
         _gateEnabled = transmitGate;
         _fadeOutOverrideMs = transmitFadeOutMs > 0 && !float.IsNaN(transmitFadeOutMs) ? transmitFadeOutMs : 0f;
@@ -152,6 +170,7 @@ internal sealed class LocalVoiceRenderer
         }
         SampleTransmitSignal();
         UpdateMakeupGain();
+        if (_feed == SinkFeedPoint.Encoder) UpdateMixerStage();
         if (_feed == SinkFeedPoint.VoicePlayer)
         {
             GuardLag();
@@ -177,9 +196,57 @@ internal sealed class LocalVoiceRenderer
         SampleRate = LocalVoiceDecoder.SampleRate;
         _decoder = new LocalVoiceDecoder();
         _eqCore = _eqDryWet > 0f ? PeakingEq.GameVoiceEq(_eqDryWet, LocalVoiceDecoder.SampleRate) : null;
+        _mixerStage = new MixerStage(LocalVoiceDecoder.SampleRate, _reverbDecaySeconds);
         OutboundVoiceTap.FrameEncoded += OnFrameEncoded;
-        _log.LogInfo($"Local Voice: encoder feed built; {LocalVoiceDecoder.SampleRate} Hz mono straight to the Sink ring ({SinkFeed.Ring.Capacity} samples); voice EQ {(_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core port)")}.");
+        _log.LogInfo($"Local Voice: encoder feed built; {LocalVoiceDecoder.SampleRate} Hz mono straight to the Sink ring ({SinkFeed.Ring.Capacity} samples); voice EQ {(_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core port)")}; " +
+                     $"mixer stage {(_mixerToggles.Master ? $"on (dry {_mixerToggles.Dry}, high {_mixerToggles.High}, fall {_mixerToggles.ReverbFall}, boost {_mixerToggles.ReverbBoost}, reverb {_reverbDecaySeconds:F1} s)" : "off")}.");
         _built = true;
+    }
+
+    // [impl->REQ-MIXER-RESYNTH]
+    // [impl->REQ-HAZARD-NO-PARTIAL-FIDELITY]
+    /// <summary>
+    /// Main thread, once per frame: the game's voice-channel model evaluated at the Self-Ear from the
+    /// local player's state (falling, synced outdoorness) and the listener's dynamic reverb, exactly
+    /// as <c>PlayerVoicePlaybackControl.Update</c> would for a remote copy of this player. The game
+    /// never writes the channel floats for the local player, so the mod computes them. Inputs that
+    /// cannot be read bypass the stage (logged once) rather than driving it with guesses.
+    /// </summary>
+    private void UpdateMixerStage()
+    {
+        if (!_mixerToggles.Master) return;
+        try
+        {
+            var me = WorldManager.localPlayerCharacter;
+            if (me is null)
+            {
+                _mixerInputsReadable = false;
+                return;
+            }
+            var inDanger = me.faller?.isInDanger ?? false;
+            var speakerOutdoor = me.playerNetworking?.outdoorness ?? 0f;
+            var reverb = AudioManager.Instance?.AudioDynamicReverb;
+            var listenerOutdoor = reverb is null ? 1f : reverb.Outdoorness;
+            _mixerModel.Step(MixerStageInputs.SelfEar(inDanger, speakerOutdoor, listenerOutdoor, 1f), Time.deltaTime);
+            _mixerDryDb = _mixerModel.DryDb;
+            _mixerHighDb = _mixerModel.HighDb;
+            _mixerFallDb = _mixerModel.ReverbFallWetDb;
+            _mixerBoostDb = _mixerModel.ReverbBoostWetDb;
+            _mixerInputsReadable = true;
+            if (inDanger != _lastInDanger)
+            {
+                _lastInDanger = inDanger;
+                if (inDanger && ++_fallEvents <= 10)
+                    _log.LogInfo($"Mixer stage: falling (outdoorness {speakerOutdoor:F2}), fall send {_mixerModel.ReverbFallWetDb:F1} dB.");
+            }
+        }
+        catch (Exception e)
+        {
+            _mixerInputsReadable = false;
+            if (_reportedMixerError) return;
+            _reportedMixerError = true;
+            _log.LogWarning($"Mixer stage: inputs unreadable, stage bypassed: {e.Message}");
+        }
     }
 
     // [impl->REQ-VOICE-ROUNDTRIP]
@@ -372,6 +439,7 @@ internal sealed class LocalVoiceRenderer
                 {
                     _dynamics.Reset(_makeupGain); // the game's session-change reset
                     _eqCore?.Reset();
+                    if (gapMs > 2000) _mixerStage?.Reset(); // a long gap: drop the reverb tail too
                 }
                 ProcessRemotePath(count);
                 if (_feed == SinkFeedPoint.Encoder)
@@ -379,6 +447,9 @@ internal sealed class LocalVoiceRenderer
                     // ADR-0005: the processed frame is the Sink's input; no provider, no Tap.
                     var frame = _scratch.AsSpan(0, Math.Min(count, _scratch.Length));
                     _eqCore?.Process(frame);
+                    // [impl->REQ-MIXER-RESYNTH]
+                    if (_mixerStage is not null && _mixerInputsReadable)
+                        _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
                     SinkFeed.Write(frame, capturedAt);
                 }
                 else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
@@ -666,6 +737,12 @@ internal sealed class LocalVoiceRenderer
         var eq = _feed == SinkFeedPoint.Encoder
             ? (_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core)")
             : (_eq is null ? "off" : $"wet {_eqDryWet:F2}");
+        if (_feed == SinkFeedPoint.Encoder && _mixerStage is not null)
+        {
+            path += _mixerToggles.Master
+                ? $"; mixer stage: {(_mixerInputsReadable ? "live" : "bypassed (inputs unreadable)")}, dry {_mixerDryDb:F1} dB, high {_mixerHighDb:F1} dB, fall {_mixerFallDb:F1} dB, boost {_mixerBoostDb:F1} dB, falls {_fallEvents}, frames {_mixerStage.Frames}"
+                : "; mixer stage: off";
+        }
         _log.LogInfo(
             $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), errors {Interlocked.Read(ref _decodeErrors)}; " +
             $"{path}; " +

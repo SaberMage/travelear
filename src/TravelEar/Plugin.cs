@@ -74,7 +74,8 @@ public sealed class Plugin : BasePlugin
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
-        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value);
+        var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
+        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -110,6 +111,11 @@ internal sealed class PluginConfig
     public ConfigEntry<string> HelperPath { get; }
     public ConfigEntry<string> SinkEndpoint { get; }
     public ConfigEntry<bool> MixerStage { get; }
+    public ConfigEntry<bool> MixerDry { get; }
+    public ConfigEntry<bool> MixerHigh { get; }
+    public ConfigEntry<bool> MixerReverbFall { get; }
+    public ConfigEntry<bool> MixerReverbBoost { get; }
+    public ConfigEntry<float> ReverbDecaySeconds { get; }
     public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<float> TransmitFadeOutMs { get; }
     public ConfigEntry<bool> Downmix { get; }
@@ -129,8 +135,19 @@ internal sealed class PluginConfig
             "Substring of the Windows playback device the Helper renders to. Empty = system default device.");
         SinkFeed = file.Bind("Fidelity", "SinkFeed", SinkFeedPoint.Encoder,
             "Where Local Voice is taken from. Encoder = the decoded outbound voice on the game's mic thread, processed by the mod and sent straight to the Sink (lowest offset, immune to the game's audio-thread stalls). VoicePlayer = the M1-M2 path through an in-game VoicePlayer and the Tap on Unity's audio thread (for A/B only).");
+        // [impl->REQ-MIXER-RESYNTH]
         MixerStage = file.Bind("Fidelity", "MixerStage", true,
-            "Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character).");
+            "Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character). Master switch for the Mixer* toggles below.");
+        MixerDry = file.Bind("Fidelity", "MixerDry", true,
+            "Apply the game's per-voice dry level (Dry{n}). At your own ears it is 0 dB, so this only matters for A/B.");
+        MixerHigh = file.Bind("Fidelity", "MixerHigh", true,
+            "Apply the game's occlusion high cut (High{n}) as a 3 kHz high shelf. 0 dB at your own ears (nothing between you and yourself).");
+        MixerReverbFall = file.Bind("Fidelity", "MixerReverbFall", true,
+            "Apply the fall reverb send (ReverbFallWet{n}): the reverb other players hear on your voice while you are falling outdoors. Approximate reverb.");
+        MixerReverbBoost = file.Bind("Fidelity", "MixerReverbBoost", true,
+            "Apply the reverb boost send (ReverbBoostWet{n}): zero at your own ears by the game's formula; kept for A/B.");
+        ReverbDecaySeconds = file.Bind("Fidelity", "ReverbDecaySeconds", 1.5f,
+            "Decay time (RT60) of the approximate reverb behind the sends, in seconds. Tune by ear against a second-client recording.");
         TransmitGate = file.Bind("Fidelity", "TransmitGate", true,
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         TransmitFadeOutMs = file.Bind("Fidelity", "TransmitFadeOutMs", 0f,
