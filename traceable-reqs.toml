@@ -108,7 +108,7 @@ required_stages = ["doc", "impl", "unit"]  # M2 T2: FrameStampTable / OffsetAver
 [[requirements]]
 id = "REQ-CONFIG-BEPINEX"
 title = "All user settings are BepInEx config entries so ModSettingsMenu surfaces them without registration"
-required_stages = []
+required_stages = ["doc", "impl"]  # M3 T3: PluginConfig binds every setting with a description; OffsetRow in the Audio settings; ModSettingsMenu check
 
 # ───────────────────────────── Hazards (docs/KNOWN-HAZARDS.md) ────────────
 

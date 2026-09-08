@@ -23,6 +23,7 @@ public sealed class Plugin : BasePlugin
     private Harmony _harmony;
     private SinkPump _pump;
     private OffsetMonitor _offset;
+    private OffsetRow _offsetRow;
     private LocalVoiceRenderer _renderer;
     private GameObject _driver;
 
@@ -71,6 +72,7 @@ public sealed class Plugin : BasePlugin
         Logger.LogInfo($"Sink feed point: {feed}.");
         _offset = new OffsetMonitor(Logger, HelperOptions.Default.BackPipe);
         _offset.Start();
+        _offsetRow = new OffsetRow(Logger, () => _offset.LastAverageMs);
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
@@ -87,6 +89,7 @@ public sealed class Plugin : BasePlugin
 
     public override bool Unload()
     {
+        _offsetRow?.Dispose();
         _offset?.Dispose();
         _pump?.Dispose();
         _harmony?.UnpatchSelf();
@@ -139,6 +142,7 @@ internal sealed class PluginConfig
     public ConfigEntry<float> SelfEarForwardMeters { get; }
     public ConfigEntry<float> SelfEarEqDryWet { get; }
 
+    // [impl->REQ-CONFIG-BEPINEX]
     public PluginConfig(ConfigFile file)
     {
         Enabled = file.Bind("General", "Enabled", true,

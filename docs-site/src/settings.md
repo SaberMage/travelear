@@ -30,3 +30,12 @@ mod installed, the same settings appear in the pause menu.
 | `Ear.SelfEarForwardMeters` | `0.0762` | How far in front of your in-game ears the voice is placed, in metres (3 inches). |
 
 `Sink.Downmix` applies live. Restart the game after changing any other key.
+
+## Offset row
+
+The game's own Audio settings (Settings in the main menu, and in the pause menu) end with a
+read-only row, `TravelEar offset: N ms`: the delay between your voice leaving the mic and
+reaching the Helper's output, as a rolling 10 s average, refreshed every 10 s. It reads
+`measuring` until the Helper has reported its first frames. The same figure is logged as
+`Offset:` every 10 s, so if the row is ever missing (the log then has a single
+`Offset row: unavailable` warning) the number is still in the log.

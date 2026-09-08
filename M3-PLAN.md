@@ -226,6 +226,27 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   candidate is the game's own soft clip on louder speech. Open: A/B with `Fidelity.MixerStage`
   and `Fidelity.MegaphoneVoice` off, an OBS recording of the buzz for spectrum analysis, and the
   run 2 checks themselves (fall outdoors while talking; hold and use a megaphone).
+- **T3 built** (2026-09-08): `OffsetRow` (main thread, ticked from `TravelEarBehaviour`) scans for
+  `SettingsMenu` instances every 2 s (`Resources.FindObjectsOfTypeAll`, prefabs skipped; the main
+  menu and the pause menu each own one) and clones the Audio category's last `SettingsRow` after
+  itself, disables the clone's `SettingsRow` in the same frame (its Start would look up a hanger by
+  `settingsType`), deactivates every `Selectable` (no navigation target; the category wired its
+  navigation over the original rows in `SettingsCatagory.Start`) and every text but the title, and
+  writes the caption into the title as a raw `LocalizedText` value. Caption `TravelEar offset: N ms`
+  (`measuring` before the first average) from `OffsetMonitor.LastAverageMs`, refreshed every 10 s
+  (Core `OffsetRowCaption`, 4 tests). Question 5's fallback is built in: the settings-UI types are
+  resolved softly (not in `GameSymbols.Bind`), and the first exception anywhere drops the row with
+  one `Offset row: unavailable` warning while the `Offset:` log line stays. ModSettingsMenu check
+  (static, from the decompiled 1.1.2 DLL and its README): it enumerates every loaded plugin's
+  `Config` with no registration, bool as on/off, enum as a selector, float and string as text
+  fields, titled by key; per-entry descriptions are NOT displayed (only a mod-level description
+  passed through its optional registration), so the "with its description" clause of this task
+  does not hold for that mod and the docs say "titled by key". `REQ-CONFIG-BEPINEX` doc + impl;
+  `REQ-OFFSET-MEASURE` doc line for the row. 191 tests. Operator check owed: open Settings > Audio
+  in the main menu and in the pause menu; the last row reads `TravelEar offset: measuring` in the
+  main menu and `TravelEar offset: N ms` in the pause menu once the Helper has streamed; the row
+  cannot be selected with a controller; the log shows `Offset row: added to the Audio settings`
+  twice (main menu, pause menu) and no `Offset row: unavailable` warning.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 
