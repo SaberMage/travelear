@@ -102,10 +102,11 @@ public sealed class Plugin : BasePlugin
 
         // Renderer: built lazily from the main thread once the game's audio system exists.
         var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
-        var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value);
+        var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value, Settings.MegaphoneMixer.Value);
+        var listener = new ListenerToggles(Settings.IndoorAttenuation.Value, Settings.SpeechlessVolume.Value, Settings.MasterLimiter.Value);
         var environment = new EnvironmentReverbToggles(Settings.EnvironmentReverb.Value, Settings.EnvironmentReverbDryCopy.Value, Settings.EnvironmentReverbBusGains.Value, Settings.EnvironmentReverbVoiceSlider.Value);
         _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.TransmitHoldMs.Value, Settings.OutputTrimDb.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value,
-            megaphone, Settings.MegaphoneMix.Value, environment);
+            megaphone, Settings.MegaphoneMix.Value, environment, listener);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
         Object.DontDestroyOnLoad(_driver);
@@ -168,6 +169,10 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> EnvironmentReverbDryCopy { get; }
     public ConfigEntry<bool> EnvironmentReverbBusGains { get; }
     public ConfigEntry<bool> EnvironmentReverbVoiceSlider { get; }
+    public ConfigEntry<bool> IndoorAttenuation { get; }
+    public ConfigEntry<bool> SpeechlessVolume { get; }
+    public ConfigEntry<bool> MasterLimiter { get; }
+    public ConfigEntry<bool> MegaphoneMixer { get; }
     public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<float> TransmitFadeOutMs { get; }
     public ConfigEntry<float> TransmitHoldMs { get; }
@@ -225,6 +230,14 @@ internal sealed class PluginConfig
             "Apply the fixed bus trims a voice meets on a listener's machine (-3 dB voice group, -6 dB dry bus). Off = both at 0 dB, louder than the game.");
         EnvironmentReverbVoiceSlider = file.Bind("Fidelity", "EnvironmentReverbVoiceSlider", false,
             "Multiply by the listener's voice volume slider as the game does. Off by default: the Sink level convention already follows your own slider.");
+        IndoorAttenuation = file.Bind("Fidelity", "IndoorAttenuation", true,
+            "The game's indoor voice attenuation: a listener hears every voice at Outdoorness * 0.5 + 0.5, i.e. 6 dB down fully indoors (their own outdoorness; yours at the Self-Ear).");
+        SpeechlessVolume = file.Bind("Fidelity", "SpeechlessVolume", true,
+            "The red bells' voice fade: a speaker inside a speechless zone is heard at 1 - speechlessness, silent at the centre. The zone's pitch and super-wet effects are not rendered yet.");
+        MasterLimiter = file.Bind("Fidelity", "MasterLimiter", true,
+            "The game's master limiter (Duck Volume on the main mixer's Master: -3 dB threshold, 10:1, 0.125 s release, 20 dB knee), the last thing a listener's mix goes through. Approximate detector.");
+        MegaphoneMixer = file.Bind("Fidelity", "MegaphoneMixer", true,
+            "The megaphone mixer's fixed effects beside its dynamics: 5 kHz low-pass, 2.5 kHz +8 dB EQ, the 2 s -10 dB reverb and the 100 ms echo. Approximate reverb.");
         TransmitGate = file.Bind("Fidelity", "TransmitGate", true,
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         TransmitFadeOutMs = file.Bind("Fidelity", "TransmitFadeOutMs", 0f,

@@ -168,6 +168,12 @@ internal sealed class LocalVoiceRenderer
     private readonly Core.VoiceMakeupGain _makeup = new();
     private readonly float[] _scratch = new float[8192];
     private readonly float[] _captureScratch = new float[8192];
+    private readonly ListenerToggles _listenerToggles;
+    private readonly SourceVolume _sourceVolume;
+    private readonly MasterLimiter _masterLimiter;
+    private volatile float _sourceGain = 1f;
+    private volatile float _speechlessness;
+    private bool _reportedSpeechlessError;
     private volatile float _makeupGain = 1f;
     private volatile float _threshold = 0.528f; // ThresholdFor(ReferenceArv) until the game's statics are read
     private volatile float _lastArv;
@@ -183,9 +189,12 @@ internal sealed class LocalVoiceRenderer
     public static volatile int SampleRate;
 
     public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float transmitHoldMs, float outputTrimDb, float readHeadMarginFrames, float eqDryWet,
-        MixerStageToggles mixerToggles, float reverbDecaySeconds, MegaphoneToggles megaphoneToggles, MegaphoneMix megaphoneMix, EnvironmentReverbToggles environmentToggles)
+        MixerStageToggles mixerToggles, float reverbDecaySeconds, MegaphoneToggles megaphoneToggles, MegaphoneMix megaphoneMix, EnvironmentReverbToggles environmentToggles, ListenerToggles listenerToggles)
     {
         _envToggles = environmentToggles;
+        _listenerToggles = listenerToggles;
+        _sourceVolume = new SourceVolume(listenerToggles.IndoorAttenuation, listenerToggles.SpeechlessVolume);
+        _masterLimiter = new MasterLimiter(LocalVoiceDecoder.SampleRate);
         _log = log;
         _pump = pump;
         _feed = feed;
@@ -290,7 +299,20 @@ internal sealed class LocalVoiceRenderer
             var speakerOutdoor = me.playerNetworking?.outdoorness ?? 0f;
             var reverb = AudioManager.Instance?.AudioDynamicReverb;
             var listenerOutdoor = reverb is null ? 1f : reverb.Outdoorness;
-            _mixerModel.Step(MixerStageInputs.SelfEar(inDanger, speakerOutdoor, listenerOutdoor, 1f), Time.deltaTime);
+            var listenerReverbTime = reverb is null ? 0f : reverb.ReverbTime;
+            _mixerModel.Step(MixerStageInputs.SelfEar(inDanger, speakerOutdoor, listenerOutdoor, listenerReverbTime), Time.deltaTime);
+            // [impl->REQ-MIXER-RESYNTH]
+            // The source's own gain chain (catalogue 5.1b, 5.5): indoor attenuation from the
+            // listener's outdoorness, the red bells' fade from the speaker's speechlessness.
+            var sp = 0f;
+            try { sp = me.speechless?.speechlessness ?? 0f; }
+            catch (Exception e)
+            {
+                if (!_reportedSpeechlessError) { _reportedSpeechlessError = true; _log.LogWarning($"Speechlessness unreadable, treated as 0: {e.Message}"); }
+            }
+            _speechlessness = sp;
+            _sourceVolume.Step(listenerOutdoor, sp, Time.deltaTime);
+            _sourceGain = _sourceVolume.Gain;
             _mixerDryDb = _mixerModel.DryDb;
             _mixerHighDb = _mixerModel.HighDb;
             _mixerFallDb = _mixerModel.ReverbFallWetDb;
@@ -665,7 +687,7 @@ internal sealed class LocalVoiceRenderer
                 {
                     _dynamics.Reset(_makeupGain); // the game's session-change reset
                     _eqCore?.Reset();
-                    if (gapMs > 2000) { _mixerStage?.Reset(); _env?.Reset(); } // a long gap: drop the reverb tails too
+                    if (gapMs > 2000) { _mixerStage?.Reset(); _env?.Reset(); _masterLimiter.Reset(); } // a long gap: drop the reverb tails too
                 }
                 ProcessRemotePath(count);
                 if (_feed == SinkFeedPoint.Encoder)
@@ -674,6 +696,9 @@ internal sealed class LocalVoiceRenderer
                     var frame = _scratch.AsSpan(0, Math.Min(count, _scratch.Length));
                     _eqCore?.Process(frame);
                     // [impl->REQ-MIXER-RESYNTH]
+                    // The AudioSource volume chain multiplies the processed voice before the mixer.
+                    var sourceGain = _sourceGain;
+                    if (sourceGain != 1f) for (var i = 0; i < frame.Length; i++) frame[i] *= sourceGain;
                     if (_mixerStage is not null && _mixerInputsReadable)
                         _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
                     // [impl->REQ-RENDER-MEGAPHONE]
@@ -694,6 +719,8 @@ internal sealed class LocalVoiceRenderer
                     var env = _envSnapshot;
                     if (_env is not null && _envReadable && env is not null)
                         _env.Process(frame, env.Params, _envToggles);
+                    // [impl->REQ-MIXER-RESYNTH]
+                    if (_listenerToggles.MasterLimiter) _masterLimiter.Process(frame, MixerFloats.TryGet("MasterLimiterThreshold", out var limiterDb) ? limiterDb : MasterLimiter.DefaultThresholdDb);
                     if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
                     SinkFeed.Write(frame, capturedAt);
                     capture?.Output(frame);
@@ -771,6 +798,7 @@ internal sealed class LocalVoiceRenderer
         frame.Clear();
         if (mixer) _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
         if (environment) _env.Process(frame, env.Params, _envToggles);
+        if (_listenerToggles.MasterLimiter) _masterLimiter.Process(frame, MixerFloats.TryGet("MasterLimiterThreshold", out var limiterDb) ? limiterDb : MasterLimiter.DefaultThresholdDb);
         if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
         SinkFeed.Write(frame, FrameStampTable.NoStamp);
         CalibrationCapture.Instance?.Output(frame);
@@ -1024,7 +1052,7 @@ internal sealed class LocalVoiceRenderer
                 ? $"; megaphone: {(_megaphoneActive ? "broadcasting" : _megaphoneHeld ? "held" : "none")}, broadcasts {_megaphoneBroadcasts}, frames {_megaphone?.Frames ?? 0}, via {_megaphonePath}, mix {_megaphoneMix}, reduction {_megaphone?.CompressorReductionDb ?? 0:F1}/{_megaphone?.PostCompressorReductionDb ?? 0:F1} dB"
                 : "; megaphone: off";
             path += _envToggles.Master
-                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}, tail frames {_tailFrames}, mixer floats seen {MixerFloats.DistinctNames}"
+                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}, tail frames {_tailFrames}, mixer floats seen {MixerFloats.DistinctNames}; source gain {_sourceGain:F2} (indoor {_sourceVolume.IndoorGain:F2}, speechless {_sourceVolume.SpeechlessGain:F2}, sp {_speechlessness:F2}); limiter {(_listenerToggles.MasterLimiter ? $"{_masterLimiter.ThresholdDb:F1} dB, reduction {_masterLimiter.ReductionDb:F1} dB" : "off")}"
                 : "; environment reverb: off";
             if (CalibrationCapture.Instance is { } capture) path += "; " + capture.Status;
         }

@@ -456,6 +456,40 @@ energy) is the one thing the decompile cannot answer; a measurement can. Design:
   hallway, the big room, the megaphone, a fall, a red bell, noting the wall-clock time of each;
   then `python tools/calibrate.py <capture dir> --segments seg.csv --reference outdoors`.
 
+### T4c — Fact-based gaps from the effects catalogue (added 2026-09-09)
+
+`docs/reference/big-walk-voice-effects-catalog.md` (background analysis, committed `dd4081c`)
+catalogued every effect a remote voice meets: 32 scenarios, every exposed float with defaults and
+writers, no snapshots anywhere, the full listener path with gains, 12 errata. What needs no
+measurement is implemented here; the rest are seeds.
+
+- **Built** (2026-09-09): (0) indoor attenuation, the catalogue's top gap and the likely "hot"
+  indoors: `AudioSourceController`'s `_outdoornessVol = listenerOutdoorness * 0.5 + 0.5`
+  (-6 dB fully indoors, smoothed 3/s) — Core `SourceVolume`, applied after the in-process
+  filters and before the mixer stages, `Fidelity.IndoorAttenuation`; (1a) the red bells' volume
+  term `_speechlessVol = 1 - speechlessness` (lerp 5/s), same class, symbols
+  `PlayerCharacter.speechless` + `PlayerSpeechless.speechlessness`, `Fidelity.SpeechlessVolume`;
+  (3) the master limiter: `Compressor` gained a ratio and a quadratic soft knee, `MasterLimiter`
+  = Duck Volume -3 dB (or the live `MasterLimiterThreshold` float) 10:1, 0.1 ms attack, 125 ms
+  release, 20 dB knee, applied last on both the pass and the tail paths, `Fidelity.MasterLimiter`;
+  (4) the megaphone mixer: compressor 10 ms / 1000 ms (was 50 / 50), the post stage is the Duck
+  Volume (-15 dB, 5:1, 250 ms — the old 0.25 was a units bug — knee 10), plus the fixed 5 kHz
+  low-pass, ParamEQ 2500 Hz octave 0.8 gain 2.5 (Q 1.78, +8 dB), the SFX reverb at d = 0 (full
+  dry, -10 dB room, 2 s) through `SfxReverb`, and the wet-only 100 ms echo (decay 0.3),
+  `Fidelity.MegaphoneMixer`, `MegaphoneToggles.Mixer`; erratum 1: `MixerStageInputs.GlobalVoiceVolume`
+  renamed `ListenerReverbTime` and fed from `AudioDynamicReverb.ReverbTime` (boost is still
+  silent at the Self-Ear). Stats line: `source gain`, `limiter`. Tests: `ListenerGainTests` (8).
+- **Seeds (M4, from the catalogue's ranked gaps):** red bells rows 9-10 — `VoicePitch = 1 -
+  sp * SpeechlessPitchDeduction` through an FFT-1024 pitch shifter (phase vocoder port) and the
+  super-wet bloom (`SuperWet_Speechlessness = (1 - sp^0.4) * -80` into the fixed 6.8 s reverb +
+  chorus, pitched by `SuperWetPitch`), all values already visible in `MixerFloats`; cliff echo
+  (`EchoRemote`, two copies 0.7-1.5 s, LP/HP, ducker, 6 s reverb); blindfold worn by the local
+  player (full-wet LowPass 1500 Hz Q 0.6 on our voice as others hear it; state from
+  `postProcessingManager.blindfoldPPVolume.weight`); blindfold/headphone listening tone
+  (`MasterLP`, `MasterFreqGain*`); ending and black tower super-wet returns; walkie/radio (out of
+  scope by design); `High{n}` as a 250 Hz band split instead of a 3 kHz shelf; the `Reverb Fall`
+  return's real 4 s / HF ratio 2 / +3 dB character (now off by default anyway).
+
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 
 The decomp trees from 2026-09-06 were current (GameAssembly.dll 2026-08-28), so no regeneration;

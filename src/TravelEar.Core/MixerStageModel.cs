@@ -16,8 +16,8 @@ public readonly record struct MixerStageInputs(
     float Occlusion,
     /// <summary>The listener side's outdoorness (<c>AudioDynamicReverb.Outdoorness</c>), 0..1.</summary>
     float ListenerOutdoorness,
-    /// <summary>The listener side's global voice volume factor.</summary>
-    float GlobalVoiceVolume,
+    /// <summary>The listener side's <c>AudioDynamicReverb.ReverbTime</c>, 0..1 (catalogue erratum 1: not a global voice volume).</summary>
+    float ListenerReverbTime,
     /// <summary>Source height above the listener in metres (the boost send needs the speaker above).</summary>
     float HeightAboveListenerMeters,
     /// <summary>The speaker's <c>PlayerFaller.isInDanger</c>: falling.</summary>
@@ -26,8 +26,8 @@ public readonly record struct MixerStageInputs(
     float SpeakerOutdoorness)
 {
     /// <summary>The Self-Ear geometry: at the listener, unoccluded, level, with the given speaker state.</summary>
-    public static MixerStageInputs SelfEar(bool inDanger, float speakerOutdoorness, float listenerOutdoorness, float globalVoiceVolume)
-        => new(1f, 0f, 0f, listenerOutdoorness, globalVoiceVolume, 0f, inDanger, speakerOutdoorness);
+    public static MixerStageInputs SelfEar(bool inDanger, float speakerOutdoorness, float listenerOutdoorness, float listenerReverbTime)
+        => new(1f, 0f, 0f, listenerOutdoorness, listenerReverbTime, 0f, inDanger, speakerOutdoorness);
 }
 
 /// <summary>
@@ -78,7 +78,7 @@ public sealed class MixerStageModel
 
         var heightFactor = Clamp01(i.HeightAboveListenerMeters / 30f);
         var boost = Cube(1f - i.Attenuation)
-                    * i.GlobalVoiceVolume
+                    * i.ListenerReverbTime
                     * Clamp01((i.DistanceMeters - 45f) / -45f)
                     * (1f - i.ListenerOutdoorness)
                     * (1f - i.Occlusion)

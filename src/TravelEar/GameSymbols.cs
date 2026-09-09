@@ -124,6 +124,8 @@ internal static class GameSymbols
         Property(missing, typeof(AudioDynamicReverb), "ReverbTime");
         Property(missing, typeof(AudioDynamicReverb), "Diffusion");
         Property(missing, typeof(AudioBasicReverb), "Bypass");
+        Property(missing, typeof(PlayerCharacter), "speechless");
+        Property(missing, typeof(PlayerSpeechless), "speechlessness");
         foreach (var name in ReverbParameterNames)
         {
             Property(missing, typeof(AudioDynamicReverb), "DSP_" + name);

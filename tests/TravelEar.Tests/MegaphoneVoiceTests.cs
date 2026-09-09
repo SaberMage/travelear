@@ -231,7 +231,7 @@ public class MegaphoneVoiceTests
         var voice = new float[24];
         for (var i = 0; i < voice.Length; i++) voice[i] = i * 0.01f;
         var output = new float[24];
-        m.Process(voice, output, MegaphoneToggles.All with { HighPass = false, Compressors = false });
+        m.Process(voice, output, MegaphoneToggles.All with { HighPass = false, Compressors = false, Mixer = false });
         // step 12, dry/wet 0.5, smooth 0.5: sample 0 = 0.5*q(0) + 0.5*0 = 0
         Assert.Equal(0f, output[0], 4);
         // sample 6 of the first hold: held 0 ramping toward 0.12 by half -> 0.03; mixed half with 0.06 -> 0.045

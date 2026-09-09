@@ -15,6 +15,10 @@ records as its own track. Nothing is mixed into the game's audio.
   decoded on your machine and passed through the same processing a listener standing next to
   you gets: makeup gain, compressor and soft clip, the game's voice EQ, then rendered from just
   in front of your in-game ears.
+- **The listener's gain chain.** The game's indoor voice attenuation (6 dB down fully indoors,
+  `Fidelity.IndoorAttenuation`), the red bells' voice fade (`Fidelity.SpeechlessVolume`) and
+  the master limiter every listener's mix ends in (`Fidelity.MasterLimiter`) are applied as the
+  game does. The bells' pitch drop and reverb bloom are not rendered yet.
 - **Environment reverb.** The room reverb other players hear on your voice (hallways, caves,
   almost nothing outdoors) follows the same live reverb parameters the game writes every frame,
   including the game's own dry copy and bus levels. `Fidelity.EnvironmentReverb` and its
@@ -23,8 +27,9 @@ records as its own track. Nothing is mixed into the game's audio.
   with `Fidelity.MixerReverbFall`; it is off because that send belongs to a voice receding from
   its listener, and your own voice never recedes from your own ears.
 - **Megaphone.** Pick up a megaphone and use it: the crushed, thinned and squashed megaphone
-  voice is rendered on top of your direct voice while you broadcast, as a listener beside you
-  hears it. `Fidelity.MegaphoneMix = Replace` keeps only the megaphone output.
+  voice, with its mixer's low-pass, EQ, reverb and echo, is rendered on top of your direct voice
+  while you broadcast, as a listener beside you hears it. `Fidelity.MegaphoneMix = Replace` keeps
+  only the megaphone output.
 - **Transmit gate.** Local Voice is rendered only while other players would receive it (not
   muted, and the game's voice activation hears speech or a radio/megaphone room is open), so the
   mic noise floor between words never reaches the track. The gate opens and closes with the
