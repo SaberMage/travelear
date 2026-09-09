@@ -1,5 +1,7 @@
 # M2 / T1 "bodies read" — the remote-voice listener chain in Big Walk
 
+> **Errata (2026-09-09):** `big-walk-voice-effects-catalog.md` section 8 lists corrections to this document found by the full effects catalogue (e.g. the boost term's second factor, the megaphone master send order, filter drivers). Read that section before relying on a formula here.
+
 Sources: ISIL x64 lift (`IsilDump`), diffable-cs (offsets/RVAs), `dll_il_recovery` +
 `callanalyzer` attributes, and float constants read directly out of
 `Big Walk\GameAssembly.dll` (image base `0x180000000`, PE section walk).

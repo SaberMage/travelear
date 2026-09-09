@@ -1,5 +1,7 @@
 # M3 "bodies read" — the environment reverb (AudioDynamicReverb, the mixer buses, and what a listener hears on a nearby voice)
 
+> **Errata (2026-09-09):** `big-walk-voice-effects-catalog.md` section 8 lists corrections to this document found by the full effects catalogue (e.g. the boost term's second factor, the megaphone master send order, filter drivers). Read that section before relying on a formula here.
+
 Sources: ISIL x64 lift (`IsilDump`, resolved call targets), diffable-cs (offsets/RVAs), float
 constants read directly out of `Big Walk\GameAssembly.dll` (image base `0x180000000`, PE section
 walk), and — new for this note — the **mixer assets themselves**, read out of
