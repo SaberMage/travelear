@@ -15,6 +15,7 @@ internal static class Program
     public const int ExitBadArgs = 1;
     public const int ExitNoEndpoint = 2;
     public const int ExitAudioFailure = 3;
+    public const int ExitNoDevice = 4;
 
     [STAThread]
     private static int Main(string[] args)
@@ -71,6 +72,17 @@ internal static class Program
         HelperLog.Write($"Starting: endpoint='{options.EndpointSetting}' tone={options.Tone} pipe={options.PipeName}");
 
         ApplicationConfiguration.Initialize();
+        if (options.Capture)
+        {
+            // T4a reference capture: record a capture device to a WAV; no Sink, no pipe.
+            using var captureForm = new StatusForm(WindowTitle + " capture");
+            using var recorder = new CaptureRecorder(options, captureForm.Report);
+            recorder.Exited += code => captureForm.BeginInvoke(() => { captureForm.ExitCode = code; captureForm.Close(); });
+            captureForm.Shown += (_, _) => recorder.Start();
+            Application.Run(captureForm);
+            HelperLog.Write($"Exit {captureForm.ExitCode}");
+            return captureForm.ExitCode;
+        }
         using var form = new StatusForm(WindowTitle);
         using var renderer = new SinkRenderer(options, form.Report);
 

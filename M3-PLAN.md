@@ -428,6 +428,33 @@ energy) is the one thing the decompile cannot answer; a measurement can. Design:
 - Also answers: the fall reverb ruling (does a peer beside a faller hear it at all), what the
   megaphone chain really sounds like beside the holder, the red-bell mechanism, and question 4.
 - Tag: `[doc->REQ-MIXER-RESYNTH]`; impl under the existing requirement.
+- **Topology (operator, 2026-09-09):** the second machine is a Switch 2 with no way to feed its
+  mic, but its audio OUTPUT can be captured on this PC. So the roles flip: this PC is the
+  SPEAKER (the mod on it, the test signal into its mic through VoiceMeeter's recorder), the
+  Switch is a real LISTENER standing beside the PC's avatar, and the Switch's output captured on
+  the PC is literally what another player hears, whole console mix included. Local Voice for the
+  same signal is written at the same time, so peer vs Local Voice is the delta directly. Absolute
+  level is unknowable through a console volume and a capture card, so all comparisons are
+  relative to a reference segment (outdoors) and everything else is ratios: dry level, wet-to-dry,
+  decay, spectral tilt. Ambience on the Switch is a confound; the click train and sweeps separate it.
+- **Built** (2026-09-09): `Calibration.Capture` / `Calibration.CaptureDevice` config
+  (`CalibrationCapture`: `input.wav` = decoded outbound voice before the chain, `local-voice.wav`
+  = the chain's output sample-aligned, `frames.csv` = per-frame gate disposition + encode stamp +
+  wall clock, `floats.csv` = every mixer float write via `MixerFloats.Observer`, `session.txt` =
+  the config in force; the stats line shows the capture's progress); Core `WavWriter`; Helper
+  `--capture <device> --out <file>` (`CaptureRecorder`, NAudio `WasapiCapture` of a capture
+  endpoint to WAV, window = stop), started by the mod as a second Helper when `CaptureDevice` is
+  set (`HelperLauncher.TryLaunchCapture`); `tools/make-calibration-signal.ps1` (Windows TTS
+  sentence + clicks + 2 s log sweep + silences per cycle, 48 kHz 16-bit; the wav is git-ignored);
+  `tools/calibrate.py` (numpy/scipy/soundfile: resample + downmix peer, envelope
+  cross-correlation alignment, phrases from `frames.csv`, per phrase peer-vs-local level, tail
+  energy in three windows after the phrase, 1/3-octave tilt; `--reference` normalises the peer
+  level on a named segment). Gates green, 212 tests. Operator procedure: set `Capture = true` and
+  `CaptureDevice` to part of the capture card's name; generate the signal once
+  (`pwsh tools/make-calibration-signal.ps1`), play it on loop from VoiceMeeter's recorder into
+  the game mic; the Switch listens beside the PC's avatar; visit outdoors (reference), the
+  hallway, the big room, the megaphone, a fall, a red bell, noting the wall-clock time of each;
+  then `python tools/calibrate.py <capture dir> --segments seg.csv --reference outdoors`.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

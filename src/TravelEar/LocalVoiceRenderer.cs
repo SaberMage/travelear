@@ -167,6 +167,7 @@ internal sealed class LocalVoiceRenderer
     private readonly VoiceDynamics _dynamics = new();
     private readonly Core.VoiceMakeupGain _makeup = new();
     private readonly float[] _scratch = new float[8192];
+    private readonly float[] _captureScratch = new float[8192];
     private volatile float _makeupGain = 1f;
     private volatile float _threshold = 0.528f; // ThresholdFor(ReferenceArv) until the game's statics are read
     private volatile float _lastArv;
@@ -649,6 +650,13 @@ internal sealed class LocalVoiceRenderer
 
             // [impl->REQ-VOICE-CONTINUOUS]
             var decision = _gateEnabled ? _gate.Decide(_transmitting, now * 1000.0 / Stopwatch.Frequency) : GateDecision.Pass;
+            var capture = CalibrationCapture.Instance;
+            if (capture is not null && _feed == SinkFeedPoint.Encoder)
+            {
+                var n = Math.Min(count, _captureScratch.Length);
+                _decoder.CopyTo(_captureScratch, n);
+                capture.Input(_captureScratch.AsSpan(0, n), capturedAt, decision == GateDecision.Pass ? "pass" : _tailSamplesLeft > 0 ? "tail" : "silence");
+            }
             // [impl->REQ-OFFSET-MEASURE]
             if (decision == GateDecision.Pass)
             {
@@ -688,6 +696,7 @@ internal sealed class LocalVoiceRenderer
                         _env.Process(frame, env.Params, _envToggles);
                     if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
                     SinkFeed.Write(frame, capturedAt);
+                    capture?.Output(frame);
                     _tailSamplesLeft = (int)(TailSeconds * LocalVoiceDecoder.SampleRate);
                 }
                 else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
@@ -703,7 +712,7 @@ internal sealed class LocalVoiceRenderer
                     // through the silence (run 4: a 1 s hallway tail cut at the gate sounded like
                     // the 0.24 s big room, and the cut itself was audible).
                     if (_tailSamplesLeft > 0 && RenderTail(count)) _tailSamplesLeft -= count;
-                    else SinkFeed.WriteSilence(count);
+                    else { SinkFeed.WriteSilence(count); capture?.OutputSilence(count); }
                 }
                 else RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
                 _lastPushWasVoice = false;
@@ -764,6 +773,7 @@ internal sealed class LocalVoiceRenderer
         if (environment) _env.Process(frame, env.Params, _envToggles);
         if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
         SinkFeed.Write(frame, FrameStampTable.NoStamp);
+        CalibrationCapture.Instance?.Output(frame);
         _tailFrames++;
         return true;
     }
@@ -1016,6 +1026,7 @@ internal sealed class LocalVoiceRenderer
             path += _envToggles.Master
                 ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}, tail frames {_tailFrames}, mixer floats seen {MixerFloats.DistinctNames}"
                 : "; environment reverb: off";
+            if (CalibrationCapture.Instance is { } capture) path += "; " + capture.Status;
         }
         _log.LogInfo(
             $"Local Voice stats: encoded {OutboundVoiceTap.Frames}, decoded {Interlocked.Read(ref _framesDecoded)} ({_lastDecodedSamples} smp), errors {Interlocked.Read(ref _decodeErrors)}; " +

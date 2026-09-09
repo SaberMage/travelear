@@ -79,4 +79,37 @@ internal static class HelperLauncher
             Plugin.Logger.LogWarning($"Sink: could not start the Helper: {e.Message}. Start it by hand; the mod will not retry.");
         }
     }
+
+    /// <summary>
+    /// T4a reference capture: starts a second Helper in <c>--capture</c> mode recording
+    /// <paramref name="device"/> to <paramref name="file"/>. Attached (no detach): OBS is not
+    /// involved and the window closes with the game. Failure is logged and ignored.
+    /// </summary>
+    public static void TryLaunchCapture(PluginConfig settings, string bepInExRoot, string device, string file)
+    {
+        var path = string.IsNullOrWhiteSpace(settings.HelperPath.Value)
+            ? DefaultPath(bepInExRoot)
+            : settings.HelperPath.Value;
+        if (!File.Exists(path))
+        {
+            Plugin.Logger.LogWarning($"Calibration capture: Helper not found at '{path}'; run it by hand: TravelEar.Helper.exe --capture \"{device}\" --out \"{file}\"");
+            return;
+        }
+        try
+        {
+            var options = HelperOptions.Default with { CaptureDevice = device, CaptureFile = file };
+            var start = new ProcessStartInfo(path)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(path) ?? bepInExRoot,
+            };
+            foreach (var arg in options.ToArgs()) start.ArgumentList.Add(arg);
+            using var process = Process.Start(start);
+            Plugin.Logger.LogInfo($"Calibration capture: Helper recording '{device}' to {file} (pid {process?.Id}).");
+        }
+        catch (Exception e)
+        {
+            Plugin.Logger.LogWarning($"Calibration capture: could not start the recording Helper: {e.Message}.");
+        }
+    }
 }

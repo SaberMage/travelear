@@ -34,6 +34,9 @@ internal static class MixerFloats
     private const int FirstWriteLogCap = 60;
     private static int _firstWriteLogs;
 
+    /// <summary>Called on every successful write (main thread) while a calibration capture is on.</summary>
+    public static volatile Action<string, float> Observer;
+
     /// <summary>How many distinct exposed floats the game has written since load.</summary>
     public static int DistinctNames => Values.Count;
 
@@ -80,6 +83,7 @@ internal static class MixerFloats
                 Plugin.Logger.LogInfo($"Mixer floats: first write of '{name}' = {value:F2} (#{_firstWriteLogs}).");
             }
             Values[name] = value;
+            Observer?.Invoke(name, value);
             if (name != MasterWet) return;
             Volatile.Write(ref _masterWetDb, value);
             Volatile.Write(ref _masterWetWritten, 1);

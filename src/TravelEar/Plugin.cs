@@ -21,6 +21,7 @@ public sealed class Plugin : BasePlugin
     internal static PluginConfig Settings;
 
     private Harmony _harmony;
+    private CalibrationCapture _capture;
     private SinkPump _pump;
     private OffsetMonitor _offset;
     private OffsetRow _offsetRow;
@@ -77,6 +78,28 @@ public sealed class Plugin : BasePlugin
         _offsetRow = new OffsetRow(Logger, () => _offset.LastAverageMs);
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
+        // T4a reference capture (M3-PLAN): off unless the operator is measuring.
+        if (Settings.CalibrationCapture.Value)
+        {
+            try
+            {
+                var notes = $"EnvironmentReverb {Settings.EnvironmentReverb.Value} DryCopy {Settings.EnvironmentReverbDryCopy.Value} BusGains {Settings.EnvironmentReverbBusGains.Value} VoiceSlider {Settings.EnvironmentReverbVoiceSlider.Value}\n" +
+                            $"MixerStage {Settings.MixerStage.Value} ReverbFall {Settings.MixerReverbFall.Value} MegaphoneVoice {Settings.MegaphoneVoice.Value} MegaphoneMix {Settings.MegaphoneMix.Value}\n" +
+                            $"TransmitGate {Settings.TransmitGate.Value} TransmitHoldMs {Settings.TransmitHoldMs.Value} TransmitFadeOutMs {Settings.TransmitFadeOutMs.Value} OutputTrimDb {Settings.OutputTrimDb.Value} SelfEarEqDryWet {Settings.SelfEarEqDryWet.Value}";
+                _capture = new CalibrationCapture(Logger, notes);
+                CalibrationCapture.Instance = _capture;
+                var device = Settings.CalibrationCaptureDevice.Value;
+                if (!string.IsNullOrWhiteSpace(device))
+                    HelperLauncher.TryLaunchCapture(Settings, Paths.BepInExRootPath, device, System.IO.Path.Combine(_capture.Directory, "peer.wav"));
+                else
+                    Logger.LogInfo("Calibration capture: no Calibration.CaptureDevice set; record the other machine's output by hand (TravelEar.Helper.exe --capture <device> --out <file>) or with OBS.");
+            }
+            catch (Exception e)
+            {
+                Logger.LogWarning($"Calibration capture: not started ({e.Message}).");
+            }
+        }
+
         // Renderer: built lazily from the main thread once the game's audio system exists.
         var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
         var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value);
@@ -93,6 +116,8 @@ public sealed class Plugin : BasePlugin
     public override bool Unload()
     {
         _offsetRow?.Dispose();
+        CalibrationCapture.Instance = null;
+        _capture?.Dispose();
         SessionLog.Stop();
         _offset?.Dispose();
         _pump?.Dispose();
@@ -151,6 +176,8 @@ internal sealed class PluginConfig
     public ConfigEntry<float> ReadHeadMarginFrames { get; }
     public ConfigEntry<float> SelfEarForwardMeters { get; }
     public ConfigEntry<float> SelfEarEqDryWet { get; }
+    public ConfigEntry<bool> CalibrationCapture { get; }
+    public ConfigEntry<string> CalibrationCaptureDevice { get; }
 
     // [impl->REQ-CONFIG-BEPINEX]
     public PluginConfig(ConfigFile file)
@@ -213,6 +240,10 @@ internal sealed class PluginConfig
             "How far behind the provider's write head the Local Voice read head is placed at each talk burst, in 60 ms frames. Lower = less Offset but more read-head resyncs (see the 'Local Voice stats' log line); raise it if resyncs climb.");
         SelfEarForwardMeters = file.Bind("Ear", "SelfEarForwardMeters", 0.0762f,
             "How far in front of the listener the Local Voice emitter sits, in metres (0.0762 = 3 in). 0 puts it on the listener, which pans oddly.");
+        CalibrationCapture = file.Bind("Calibration", "Capture", false,
+            "Reference capture for calibrating the mod against a real listener: records the decoded outbound voice, the Local Voice output and every mixer float the game writes under %LOCALAPPDATA%\\TravelEar\\calibration\\<timestamp>. Off unless you are measuring; see M3-PLAN T4a.");
+        CalibrationCaptureDevice = file.Bind("Calibration", "CaptureDevice", "",
+            "Part of the name of the Windows capture device carrying the other machine's audio output (an HDMI capture card, line-in). When set with Capture on, a second Helper records it to peer.wav beside the capture. Empty = record it yourself (OBS or TravelEar.Helper.exe --capture).");
         // [impl->REQ-EAR-SELF]
         SelfEarEqDryWet = file.Bind("Fidelity", "SelfEarEqDryWet", 0f,
             "Wet mix (0-1) of the game's 400 Hz voice EQ on Local Voice. Remote voices fade it in with distance and angle; at the Self-Ear both are zero, so 0 = the dry voice a listener next to you hears. Raise it to hear the through-a-wall character.");

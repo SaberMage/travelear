@@ -9,8 +9,12 @@ namespace TravelEar.Core;
 /// <param name="PipeName">Named pipe the mod serves Sink frames on.</param>
 /// <param name="ShowHelp"><c>--help</c> was given; print usage and exit.</param>
 /// <param name="Detach">Re-launch self without this flag and exit at once, so the real Helper's parent is this short-lived launcher rather than whoever started it (the game).</param>
-public sealed record HelperOptions(string EndpointSetting, bool Tone, string PipeName, bool ShowHelp, bool Detach = false)
+public sealed record HelperOptions(string EndpointSetting, bool Tone, string PipeName, bool ShowHelp, bool Detach = false,
+    string? CaptureDevice = null, string? CaptureFile = null)
 {
+    /// <summary>Recording mode (T4a reference capture): record a capture device to a WAV instead of rendering the Sink.</summary>
+    public bool Capture => CaptureDevice is not null;
+
     public const string DefaultPipeName = "TravelEar.Sink";
 
     public static readonly HelperOptions Default = new("", false, DefaultPipeName, false);
@@ -27,6 +31,9 @@ public sealed record HelperOptions(string EndpointSetting, bool Tone, string Pip
         "  --tone                  Render a 440 Hz test tone instead of reading the Sink pipe.\n" +
         "  --pipe <name>           Named pipe to read Sink frames from (default " + DefaultPipeName + ").\n" +
         "  --detach                Start a second copy without this flag and exit, leaving it outside the caller's process tree.\n" +
+        "  --capture <substring>   Record the capture device whose name contains <substring> (the other machine's audio\n" +
+        "                          output on an HDMI capture card, say) to a WAV instead of rendering the Sink.\n" +
+        "  --out <file>            Where --capture writes (default: TravelEar/calibration/peer-<timestamp>.wav under LOCALAPPDATA).\n" +
         "  --help                  Show this text.";
 
     /// <summary>Builds the argument vector the mod passes when launching the Helper.</summary>
@@ -37,6 +44,8 @@ public sealed record HelperOptions(string EndpointSetting, bool Tone, string Pip
         if (Tone) args.Add("--tone");
         if (PipeName != DefaultPipeName) { args.Add("--pipe"); args.Add(PipeName); }
         if (Detach) args.Add("--detach");
+        if (CaptureDevice is not null) { args.Add("--capture"); args.Add(CaptureDevice); }
+        if (CaptureFile is not null) { args.Add("--out"); args.Add(CaptureFile); }
         return args.ToArray();
     }
 
@@ -75,6 +84,16 @@ public sealed record HelperOptions(string EndpointSetting, bool Tone, string Pip
                 case "--detach":
                     if (inlineValue is not null) throw new ArgumentException("--detach takes no value.");
                     result = result with { Detach = true };
+                    break;
+                case "--capture":
+                    var device = TakeValue(args, ref i, inlineValue, arg);
+                    if (device.Length == 0) throw new ArgumentException("--capture needs part of a capture device name.");
+                    result = result with { CaptureDevice = device };
+                    break;
+                case "--out":
+                    var file = TakeValue(args, ref i, inlineValue, arg);
+                    if (file.Length == 0) throw new ArgumentException("--out needs a file path.");
+                    result = result with { CaptureFile = file };
                     break;
                 case "--help":
                 case "-h":
