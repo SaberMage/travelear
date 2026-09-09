@@ -135,10 +135,18 @@ internal sealed class OffsetRow : IDisposable
         if (category == null) throw new InvalidOperationException("SettingsMenu.catagoryAudio is missing.");
         var rows = category.rows;
         if (rows == null || rows.Length == 0) throw new InvalidOperationException("The Audio SettingsCatagory has no rows.");
-        // The last row is the template. Every Audio row is a slider with no `title` (runs 3-4):
-        // its heading ("MENU MUSIC VOLUME") is a plain LocalizedText child, and `sliderLabel` is
-        // the narrow value box, so the caption goes to the widest heading text (PickCaption).
+        // The template is the last row that is a setting (a slider, a title or an array label):
+        // the category's very last row is the "Reset to default" button, whose clone is not
+        // visible in the list (run 5). Every Audio setting row is a slider with no `title`
+        // (runs 3-4): its heading ("MENU MUSIC VOLUME") is a plain LocalizedText child and
+        // `sliderLabel` is the narrow value box, so the caption goes to the widest heading text
+        // (PickCaption).
         SettingsRow template = null;
+        for (var i = rows.Length - 1; i >= 0 && template == null; i--)
+        {
+            var candidate = rows[i];
+            if (candidate != null && (candidate.slider != null || candidate.title != null || candidate.arrayLabel != null)) template = candidate;
+        }
         for (var i = rows.Length - 1; i >= 0 && template == null; i--)
             if (rows[i] != null) template = rows[i];
         if (template == null) throw new InvalidOperationException("The Audio SettingsCatagory has no non-null SettingsRow to clone.");

@@ -375,6 +375,59 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   on one line in both menus; try `TransmitHoldMs` 400-500 and `OutputTrimDb` -3 if the gate or
   level still bother; walk up to a red bell while talking and note the `Mixer floats: first
   write` lines.
+- **M3 run 5** (2026-09-09 ~03:00-03:20 local, two launches on `d57f994`; the second, a short
+  settings check, overwrote the first's `LogOutput.log`, so only the short one is on disk).
+  Operator's ear: the hallway now sounds different from the big room and the reverb no longer
+  cuts off; words still cut a little and Local Voice is still a bit hot (better); **A/B against
+  remote players in the big room: Local Voice's echo and reverb are far too wet**; no settings
+  row visible. Operator rulings: (a) the fall reverb makes no sense on Local Voice (the Self-Ear
+  never recedes from the speaker) -> `Fidelity.MixerReverbFall` default off, kept for
+  comparison; (b) the wet levels must come from measurement, not trial and error. Short-run log:
+  `Offset row: added … from row 'SettingsRow_Button Reset' via heading 'Title' (800 px wide)` —
+  with run 4's field filter gone the template became the category's last row, the Reset button,
+  whose clone is not visible in the list -> the template is now the last row that is a setting
+  (slider, title or array label). `Mixer floats: first write` listed 35 exposed floats the game
+  writes in the menu alone: `MasterLP 22000`, `MasterFreqGain3k/1k 1`, `VoicePitch 1`,
+  `FoleyPitch`, `PropPitch`, `SuperWetPitch 1`, `BiomeAmbPitch`, `SuperWet_Blindfold /
+  _Speechlessness / _Ending -80`, `Voice_Dry 0`, `Voice_Wet 0`, `Voice_SuperWet 0`, `MasterWet 0`,
+  the ambience volumes / HP / LP, and the 14 SFX Reverb floats (`DryLevel … Density`) —
+  `VoicePitch` and `Voice_SuperWet` + `SuperWetPitch` are the first candidates for the red
+  bells. Fixes (this commit): `SessionLog` copies every TravelEar line and every warning/error to
+  `%LOCALAPPDATA%\TravelEar\logs\game-<timestamp>.log` per launch (newest 12 kept), so no run is
+  lost again; Offset row template rule; fall reverb default off; the operator's config set to
+  `TransmitHoldMs = 450`, `OutputTrimDb = -3` to try. Megaphone and red-bell evidence from the
+  first launch is gone; owed again in run 6.
+
+### T4a — Reference capture (added 2026-09-09 after run 5)
+
+Why: the operator's A/B says Local Voice's reverb is far wetter than a remote voice in the same
+room, and question 4 always said the reverb is calibrated against a second-client recording.
+Guessing FMOD's SFX Reverb calibration (what 0 mB of `Room`/`Reverb` means in absolute wet
+energy) is the one thing the decompile cannot answer; a measurement can. Design:
+
+- Two machines: the operator's PC as the **listener** (mod installed, `Calibration.Capture =
+  true`), a second machine as the **speaker** joining the session, feeding a known test signal
+  into its mic (VoiceMeeter can play a WAV: a click train + a 2 s log sweep + a speech clip,
+  repeated), standing at the Self-Ear distance in each place of interest (hallway, big room,
+  outdoors, falling, with a megaphone, near a red bell).
+- The listener's mod records, time-stamped, into `%LOCALAPPDATA%\TravelEar\calibration\<run>\`:
+  (a) each remote voice's decoded PCM as it leaves its `AudioFilterMixer` (the `TapFilter`
+  postfix already fires for every mixer; for non-local mixers it writes `remote-<n>.wav` when
+  capture is on) — the exact input to the game's mixer path; (b) every mixer float write with
+  its time (`MixerFloats` -> `floats.csv`: `Dry{n}`, `High{n}`, the sends, the 14 DSP floats,
+  `MasterWet`, `VoicePitch`, …) — the exact parameter timeline; (c) the game's final output: the
+  Helper gains `--loopback <device>` (NAudio `WasapiLoopbackCapture`) and the mod starts one
+  when capture is on, writing `output.wav`; (d) `Local Voice` itself for the same signal is not
+  needed: the Core chain is re-run offline on (a) with (b).
+- Offline: `tools/calibrate.py` (numpy) aligns (a) and (c) by cross-correlating the click train,
+  measures per place the dry gain, the early/late wet-to-dry energy ratio and the decay, then
+  renders (a) through the Core chain (`TravelEar.Calibrate` console tool referencing Core, given
+  the params from (b)) and reports the delta per stage. Constants that the measurement fixes
+  (SfxReverb's wet calibration, the bus sum, the megaphone compressors) go into Core with the
+  measured figures cited in the reference doc; `SfxReverbSceneTests` gains the measured targets.
+- Also answers: the fall reverb ruling (does a peer beside a faller hear it at all), what the
+  megaphone chain really sounds like beside the holder, the red-bell mechanism, and question 4.
+- Tag: `[doc->REQ-MIXER-RESYNTH]`; impl under the existing requirement.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

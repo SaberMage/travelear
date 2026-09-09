@@ -19,9 +19,9 @@ records as its own track. Nothing is mixed into the game's audio.
   almost nothing outdoors) follows the same live reverb parameters the game writes every frame,
   including the game's own dry copy and bus levels. `Fidelity.EnvironmentReverb` and its
   `EnvironmentReverb*` toggles switch each part off for comparison.
-- **Fall reverb.** The reverb peers hear while you fall outdoors is rendered while you fall;
-  `Fidelity.MixerReverbFall` and `Fidelity.ReverbDecaySeconds` control it. The reverb network
-  itself is approximate; levels and timing are the game's.
+- **Fall reverb** (off by default). The game's fall reverb send can be applied to Local Voice
+  with `Fidelity.MixerReverbFall`; it is off because that send belongs to a voice receding from
+  its listener, and your own voice never recedes from your own ears.
 - **Megaphone.** Pick up a megaphone and use it: the crushed, thinned and squashed megaphone
   voice is rendered on top of your direct voice while you broadcast, as a listener beside you
   hears it. `Fidelity.MegaphoneMix = Replace` keeps only the megaphone output.

@@ -32,6 +32,7 @@ public sealed class Plugin : BasePlugin
         Logger = Log;
         Settings = new PluginConfig(Config);
         Logger.LogInfo($"{Name} {VersionString} loaded. Enabled={Settings.Enabled.Value}");
+        SessionLog.Start(Logger);
 
         if (!Settings.Enabled.Value)
         {
@@ -92,6 +93,7 @@ public sealed class Plugin : BasePlugin
     public override bool Unload()
     {
         _offsetRow?.Dispose();
+        SessionLog.Stop();
         _offset?.Dispose();
         _pump?.Dispose();
         _harmony?.UnpatchSelf();
@@ -170,8 +172,8 @@ internal sealed class PluginConfig
             "Apply the game's per-voice dry level (Dry{n}). At your own ears it is 0 dB, so this only matters for A/B.");
         MixerHigh = file.Bind("Fidelity", "MixerHigh", true,
             "Apply the game's occlusion high cut (High{n}) as a 3 kHz high shelf. 0 dB at your own ears (nothing between you and yourself).");
-        MixerReverbFall = file.Bind("Fidelity", "MixerReverbFall", true,
-            "Apply the fall reverb send (ReverbFallWet{n}): the reverb other players hear on your voice while you are falling outdoors. Approximate reverb.");
+        MixerReverbFall = file.Bind("Fidelity", "MixerReverbFall", false,
+            "Apply the fall reverb send (ReverbFallWet{n}) to Local Voice. Off by default (operator ruling, M3 run 5): the send belongs to a voice receding from the listener, and the Self-Ear never recedes. Kept for comparison. Approximate reverb.");
         MixerReverbBoost = file.Bind("Fidelity", "MixerReverbBoost", true,
             "Apply the reverb boost send (ReverbBoostWet{n}): zero at your own ears by the game's formula; kept for A/B.");
         ReverbDecaySeconds = file.Bind("Fidelity", "ReverbDecaySeconds", 1.5f,

@@ -56,7 +56,6 @@ All settings live in `BepInEx\config\com.sabermage.travelear.cfg`; ModSettingsMe
 | `Sink.SpawnHelper` | `true` | Launch the Helper automatically with the game. |
 | `Sink.Downmix` | `false` | Force mono output. |
 | `Fidelity.EnvironmentReverb` | `true` | The room reverb listeners hear on your voice, driven by the game's live reverb parameters. |
-| `Fidelity.MixerReverbFall` | `true` | The reverb listeners hear while you fall outdoors. |
 | `Fidelity.MegaphoneVoice` | `true` | Render the megaphone's output while you hold and use one. |
 | `Fidelity.TransmitGate` | `true` | Render Local Voice only while peers receive it; off renders the mic noise floor too. |
 | `Ear.SelfEarForwardMeters` | `0.0762` | How far in front of your in-game ears the voice is placed (3 in). |

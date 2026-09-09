@@ -15,7 +15,7 @@ mod installed, the same settings appear in the pause menu.
 | `Fidelity.MixerStage` | `true` | Re-synthesize the game's mixer-stage effects (reverb sends, dry/high trims, megaphone character). Master switch for the `Mixer*` toggles below. Turn off to hear only the exactly reproduced part. |
 | `Fidelity.MixerDry` | `true` | The game's per-voice dry level. 0 dB at your own ears; kept for comparison. |
 | `Fidelity.MixerHigh` | `true` | The game's occlusion high cut, approximated as a 3 kHz shelf. Nothing to cut at your own ears; kept for comparison. |
-| `Fidelity.MixerReverbFall` | `true` | The reverb other players hear on your voice while you fall outdoors. Approximate reverb. |
+| `Fidelity.MixerReverbFall` | `false` | The game's fall reverb send, applied to Local Voice. Off by default: that send belongs to a voice receding from the listener, and your own voice never recedes from your own ears. Kept for comparison. |
 | `Fidelity.MixerReverbBoost` | `true` | The game's reverb boost send. Silent at your own ears by the game's own formula; kept for comparison. |
 | `Fidelity.ReverbDecaySeconds` | `1.5` | Decay time of the approximate reverb, in seconds. Tune by ear against a recording from a second player. |
 | `Fidelity.MegaphoneVoice` | `true` | Render the megaphone's output while you hold and use one, as a listener beside you hears it. Master switch for the `Megaphone*` toggles. |
