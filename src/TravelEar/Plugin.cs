@@ -80,7 +80,7 @@ public sealed class Plugin : BasePlugin
         var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
         var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value);
         var environment = new EnvironmentReverbToggles(Settings.EnvironmentReverb.Value, Settings.EnvironmentReverbDryCopy.Value, Settings.EnvironmentReverbBusGains.Value, Settings.EnvironmentReverbVoiceSlider.Value);
-        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value,
+        _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.TransmitHoldMs.Value, Settings.OutputTrimDb.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value,
             megaphone, Settings.MegaphoneMix.Value, environment);
         ClassInjector.RegisterTypeInIl2Cpp<TravelEarBehaviour>();
         _driver = new GameObject("TravelEar") { hideFlags = HideFlags.HideAndDontSave };
@@ -143,6 +143,8 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> EnvironmentReverbVoiceSlider { get; }
     public ConfigEntry<bool> TransmitGate { get; }
     public ConfigEntry<float> TransmitFadeOutMs { get; }
+    public ConfigEntry<float> TransmitHoldMs { get; }
+    public ConfigEntry<float> OutputTrimDb { get; }
     public ConfigEntry<bool> Downmix { get; }
     public ConfigEntry<float> ReadHeadMarginFrames { get; }
     public ConfigEntry<float> SelfEarForwardMeters { get; }
@@ -198,6 +200,10 @@ internal sealed class PluginConfig
             "Render Local Voice only while peers receive it (a voice-activation or push-to-talk channel is open); silence otherwise. Off = render everything the mic encodes, noise floor included.");
         TransmitFadeOutMs = file.Bind("Fidelity", "TransmitFadeOutMs", 0f,
             "Fade-out of Local Voice when the game's voice activation stops hearing you, in ms. 0 = the game's own channel fade (read from its voice-activation trigger, logged as 'Transmit fade:'). Raise it if speech still chops between words.");
+        TransmitHoldMs = file.Bind("Fidelity", "TransmitHoldMs", 0f,
+            "How long Local Voice keeps rendering after the game's voice activation stops hearing you, before the fade-out starts, in ms. 0 = automatic (the fade-out plus 60 ms, at least 100; logged as 'gate hold'). Raise it if the quiet ends of words get cut.");
+        OutputTrimDb = file.Bind("Fidelity", "OutputTrimDb", 0f,
+            "Gain applied to Local Voice last, just before the Helper, in dB. Calibration only: the chain's level is the game's (a listener beside you gets the -6 dB dry bus plus the reverb's own dry copy, about +1 dB together). Negative = quieter.");
         Downmix = file.Bind("Sink", "Downmix", false,
             "Downmix Local Voice to mono before sending it to the Sink.");
         // [impl->REQ-OFFSET-MEASURE]

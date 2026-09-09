@@ -28,8 +28,10 @@ records as its own track. Nothing is mixed into the game's audio.
 - **Transmit gate.** Local Voice is rendered only while other players would receive it (not
   muted, and the game's voice activation hears speech or a radio/megaphone room is open), so the
   mic noise floor between words never reaches the track. The gate opens and closes with the
-  game's own channel fade, not a cut. `Fidelity.TransmitGate` turns it off,
-  `Fidelity.TransmitFadeOutMs` overrides the fade-out.
+  game's own channel fade, not a cut. The room reverbs keep ringing after the gate closes, as
+  they do on a listener's machine. `Fidelity.TransmitGate` turns it off,
+  `Fidelity.TransmitFadeOutMs` overrides the fade-out, `Fidelity.TransmitHoldMs` how long it
+  stays open after speech, and `Fidelity.OutputTrimDb` trims the final level.
 - **The Helper.** A small separate process, started with the game, plays Local Voice to a
   Windows playback device of your choice. In OBS, add **Application Audio Capture** and pick the
   window "TravelEar for Big Walk" to record it on its own track with no virtual cable driver.

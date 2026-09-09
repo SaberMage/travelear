@@ -121,6 +121,18 @@ internal sealed class LocalVoiceRenderer
     private readonly TransmitGate _gate = new();
     private readonly TransmitFader _fader = new(0, 0); // a hard gate until the game's fade is read
     private readonly float _fadeOutOverrideMs;
+    private readonly float _holdOverrideMs;
+    private readonly float _outputTrim;
+    private readonly float _outputTrimDb;
+    /// <summary>Samples of reverb tail still to render through the gate's silence after the last passed frame.</summary>
+    private int _tailSamplesLeft;
+    private long _tailFrames;
+    private volatile bool _megaphoneRoomOpen;
+    private string _megaphonePath = "none";
+    private float _nextMegaphoneProbe;
+    private int _megaphoneProbes;
+    /// <summary>How long the listener-side reverbs keep ringing after the gate closes (the game's longest DecayTime is 16 s, the fall return 4 s; a talk burst ends well before that in practice).</summary>
+    private const float TailSeconds = 4f;
     private bool _fadeConfigured;
     private bool _reportedFadeError;
     private volatile bool _transmitting = true; // fail open until the signal is read
@@ -169,7 +181,7 @@ internal sealed class LocalVoiceRenderer
     /// <summary>Unity's DSP output rate, read when the renderer is built (0 before).</summary>
     public static volatile int SampleRate;
 
-    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float readHeadMarginFrames, float eqDryWet,
+    public LocalVoiceRenderer(ManualLogSource log, SinkPump pump, SinkFeedPoint feed, float forwardMeters, bool transmitGate, float transmitFadeOutMs, float transmitHoldMs, float outputTrimDb, float readHeadMarginFrames, float eqDryWet,
         MixerStageToggles mixerToggles, float reverbDecaySeconds, MegaphoneToggles megaphoneToggles, MegaphoneMix megaphoneMix, EnvironmentReverbToggles environmentToggles)
     {
         _envToggles = environmentToggles;
@@ -183,6 +195,9 @@ internal sealed class LocalVoiceRenderer
         _forwardMeters = forwardMeters;
         _gateEnabled = transmitGate;
         _fadeOutOverrideMs = transmitFadeOutMs > 0 && !float.IsNaN(transmitFadeOutMs) ? transmitFadeOutMs : 0f;
+        _holdOverrideMs = transmitHoldMs > 0 && !float.IsNaN(transmitHoldMs) ? transmitHoldMs : 0f;
+        _outputTrimDb = float.IsNaN(outputTrimDb) ? 0f : Mathf.Clamp(outputTrimDb, -40f, 20f);
+        _outputTrim = MixerStageModel.Gain(_outputTrimDb);
         _eqDryWet = float.IsNaN(eqDryWet) ? 0f : Mathf.Clamp01(eqDryWet);
         ReadHeadMarginFrames = readHeadMarginFrames > 0 && !float.IsNaN(readHeadMarginFrames) ? readHeadMarginFrames : 1.5f;
         Instance = this;
@@ -396,6 +411,7 @@ internal sealed class LocalVoiceRenderer
         if (!_megaphoneToggles.Master) return;
         var held = false;
         var active = false;
+        var path = "none";
         try
         {
             var me = WorldManager.localPlayerCharacter;
@@ -405,6 +421,24 @@ internal sealed class LocalVoiceRenderer
                 held = true;
                 var broadcaster = rva.latestBroadcastPlayer;
                 active = rva.isBroadcasting && broadcaster is not null && broadcaster.Pointer == me.Pointer;
+                path = "prop";
+            }
+            // Fallback (run 4: the held-prop chain read nothing while the operator used one): the
+            // wiring doc says broadcasting manifests locally as the Megaphone token room on
+            // DissonanceComms, which the transmit signal already lists as transmitting.
+            if (!active && _megaphoneRoomOpen)
+            {
+                held = true;
+                active = true;
+                path = "room";
+                if (Time.unscaledTime >= _nextMegaphoneProbe && _megaphoneProbes < 10)
+                {
+                    _nextMegaphoneProbe = Time.unscaledTime + 5f;
+                    _megaphoneProbes++;
+                    var hands = me?.hands;
+                    var prop = hands?.heldProp;
+                    _log.LogInfo($"Megaphone: probe #{_megaphoneProbes}: room open but the held-prop chain says no: me {(me is null ? "null" : "ok")}, hands {(hands is null ? "null" : "ok")}, heldProp {(prop is null ? "null" : $"'{prop.name}'")}, radioVoiceAssigner {(rva is null ? "null" : $"type {rva._cachedVoiceType}, broadcasting {rva.isBroadcasting}, latest {(rva.latestBroadcastPlayer is null ? "null" : rva.latestBroadcastPlayer.Pointer == me.Pointer ? "me" : "other")}")}.");
+                }
             }
         }
         catch (Exception e)
@@ -419,6 +453,7 @@ internal sealed class LocalVoiceRenderer
         }
         _megaphoneHeld = held;
         _megaphoneActive = active;
+        _megaphonePath = path;
         if (held != _lastMegaphoneHeld)
         {
             _lastMegaphoneHeld = held;
@@ -651,14 +686,25 @@ internal sealed class LocalVoiceRenderer
                     var env = _envSnapshot;
                     if (_env is not null && _envReadable && env is not null)
                         _env.Process(frame, env.Params, _envToggles);
+                    if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
                     SinkFeed.Write(frame, capturedAt);
+                    _tailSamplesLeft = (int)(TailSeconds * LocalVoiceDecoder.SampleRate);
                 }
                 else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
                 _lastPushWasVoice = true;
             }
             else
             {
-                if (_feed == SinkFeedPoint.Encoder) SinkFeed.WriteSilence(count);
+                if (_feed == SinkFeedPoint.Encoder)
+                {
+                    // [impl->REQ-MIXER-RESYNTH]
+                    // The gate silences the voice, not the room: on a listener's machine the mixer
+                    // reverbs keep ringing after the channel closes, so the tails are rendered
+                    // through the silence (run 4: a 1 s hallway tail cut at the gate sounded like
+                    // the 0.24 s big room, and the cut itself was audible).
+                    if (_tailSamplesLeft > 0 && RenderTail(count)) _tailSamplesLeft -= count;
+                    else SinkFeed.WriteSilence(count);
+                }
                 else RoundTripProvider.Push(GateSilence(count), count, _ringChannels, FrameStampTable.NoStamp);
                 _lastPushWasVoice = false;
             }
@@ -700,6 +746,26 @@ internal sealed class LocalVoiceRenderer
         _dynamics.Process(_scratch.AsSpan(0, count), _makeupGain, _threshold, LocalVoiceDecoder.SampleRate);
         _decoder.CopyFrom(_scratch, count);
         _lastArv = _dynamics.Arv;
+    }
+
+    /// <summary>
+    /// Runs one silent frame through the listener-side reverbs and writes the tail to the Sink.
+    /// False (nothing written) when no reverb stage is live, so the caller writes plain silence.
+    /// </summary>
+    private bool RenderTail(int count)
+    {
+        var mixer = _mixerStage is not null && _mixerInputsReadable && _mixerToggles.Master;
+        var env = _envSnapshot;
+        var environment = _env is not null && _envReadable && env is not null && _envToggles.Master;
+        if (!mixer && !environment) return false;
+        var frame = _scratch.AsSpan(0, Math.Min(count, _scratch.Length));
+        frame.Clear();
+        if (mixer) _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
+        if (environment) _env.Process(frame, env.Params, _envToggles);
+        if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
+        SinkFeed.Write(frame, FrameStampTable.NoStamp);
+        _tailFrames++;
+        return true;
     }
 
     // [impl->REQ-RENDER-CLEAN]
@@ -794,6 +860,7 @@ internal sealed class LocalVoiceRenderer
     {
         var sample = TransmitSignal.Read(out var error);
         _transmitting = !sample.Available || sample.PeersReceive;
+        _megaphoneRoomOpen = sample.Available && sample.TriggersText != null && sample.TriggersText.Contains("Megaphone");
         if (_gateEnabled && !_fadeConfigured && sample.Available) ConfigureFade();
         if (error is not null && !_reportedSignalError)
         {
@@ -823,9 +890,9 @@ internal sealed class LocalVoiceRenderer
             var gameFadeOut = fadeOut;
             if (_fadeOutOverrideMs > 0) fadeOut = _fadeOutOverrideMs;
             _fader.Set(fadeIn, fadeOut);
-            _gate.SetReleaseHold(Math.Max(TransmitGate.DefaultReleaseHoldMs, fadeOut + 60));
+            _gate.SetReleaseHold(_holdOverrideMs > 0 ? _holdOverrideMs : Math.Max(TransmitGate.DefaultReleaseHoldMs, fadeOut + 60));
             _fadeConfigured = true;
-            _log.LogInfo($"Transmit fade: in {fadeIn:F0} ms, out {fadeOut:F0} ms (the game's '{source}' trigger fades out over {gameFadeOut:F0} ms); gate hold {_gate.ReleaseHoldMs:F0} ms.");
+            _log.LogInfo($"Transmit fade: in {fadeIn:F0} ms, out {fadeOut:F0} ms (the game's '{source}' trigger fades out over {gameFadeOut:F0} ms); gate hold {_gate.ReleaseHoldMs:F0} ms{(_holdOverrideMs > 0 ? " (Fidelity.TransmitHoldMs)" : "")}; output trim {_outputTrimDb:F1} dB.");
         }
         catch (Exception e)
         {
@@ -944,10 +1011,10 @@ internal sealed class LocalVoiceRenderer
                 ? $"; mixer stage: {(_mixerInputsReadable ? "live" : "bypassed (inputs unreadable)")}, dry {_mixerDryDb:F1} dB, high {_mixerHighDb:F1} dB, fall {_mixerFallDb:F1} dB, boost {_mixerBoostDb:F1} dB, falls {_fallEvents}, frames {_mixerStage.Frames}"
                 : "; mixer stage: off";
             path += _megaphoneToggles.Master
-                ? $"; megaphone: {(_megaphoneActive ? "broadcasting" : _megaphoneHeld ? "held" : "none")}, broadcasts {_megaphoneBroadcasts}, frames {_megaphone?.Frames ?? 0}, mix {_megaphoneMix}, reduction {_megaphone?.CompressorReductionDb ?? 0:F1}/{_megaphone?.PostCompressorReductionDb ?? 0:F1} dB"
+                ? $"; megaphone: {(_megaphoneActive ? "broadcasting" : _megaphoneHeld ? "held" : "none")}, broadcasts {_megaphoneBroadcasts}, frames {_megaphone?.Frames ?? 0}, via {_megaphonePath}, mix {_megaphoneMix}, reduction {_megaphone?.CompressorReductionDb ?? 0:F1}/{_megaphone?.PostCompressorReductionDb ?? 0:F1} dB"
                 : "; megaphone: off";
             path += _envToggles.Master
-                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}"
+                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}, tail frames {_tailFrames}, mixer floats seen {MixerFloats.DistinctNames}"
                 : "; environment reverb: off";
         }
         _log.LogInfo(

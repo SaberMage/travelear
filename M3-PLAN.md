@@ -337,6 +337,44 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   `environment reverb: live`; Settings > Audio last row `TravelEar offset:` in both menus and
   `Offset row: added … via <field>` twice; plus the T1/T2 checks (fall outdoors while talking;
   hold and use a megaphone).
+- **M3 run 4** (2026-09-09 00:36-02:45 local, operator solo run on `b232692`, default feed; all
+  checks exercised: hallway, big indoor room, outdoors, 7 falls, a megaphone, both menus).
+  Log: `MasterWet` written by the game (0 dB, 155k writes by the end: it is written every frame
+  along with the DSP floats), environment reverb `live` all run, `Offset row: added` twice (via
+  `sliderLabel`), 7 `Mixer stage: falling` lines, no warnings; counters clean (54039 frames,
+  `dropped 0`, `errors 0`; Helper `underruns 0, starves 0, trims 0`). The game's parameters
+  differ strongly between the hallway (RS 0.3-0.5, O 0.07-0.14, Decay 0.9-1.1 s, Reverb -620..
+  -870 mB) and the big room (RS 0.42, O 0.65, Decay 0.24 s, Reverb -2240 mB). Operator's ear:
+  (1) reverb present indoors but the big room sounded much like the hallway, whereas peers hear
+  the hallway distinctly stronger; (2) the reverb cut off abruptly once quiet; (3) Local Voice a
+  little hot; (4) the gate over-eager on quiet word ends even with the game's noise suppression
+  off; (5) the settings row wrapped into a column (caption landed in the slider's value box);
+  (6) the two red bells' effect (voices distort low and slow down nearby, go silent up close)
+  not applied to Local Voice. Also: `megaphone: none, broadcasts 0` all run although the
+  transmit signal showed the `MegaphoneA` token room transmitting: the held-prop chain
+  (`hands.heldProp.radioVoiceAssigner`) read nothing, silently. Diagnosis for (1)+(2): the
+  stages ran only on passed frames (`environment reverb: frames 23923` = passed 23923), so every
+  tail was cut when the gate closed ~360 ms after speech; a 1 s hallway tail truncated to 0.36 s
+  is the big room's 0.24 s tail. (3) is the game's arithmetic: -6 dB dry bus + the reverb's own
+  dry copy (`DryLevel` -250..-400 mB) sums to about +1 dB (`dry 1.13 (copy 0.63)` in the stats
+  line). Fixes (this commit): reverb tails rendered through the gate's silence for up to 4 s
+  after the last passed frame (`RenderTail`; stats `tail frames`); `Fidelity.TransmitHoldMs`
+  (0 = automatic) and `Fidelity.OutputTrimDb` (0) knobs; megaphone fallback: a transmitting
+  `Megaphone*` room counts as broadcasting (stats `via prop|room`), with a `Megaphone: probe`
+  line (every 5 s, 10 max) dumping the held-prop chain while the room is open so the proper
+  path can be fixed; Offset row caption = the row's widest heading `LocalizedText` (not the
+  value label), word wrap off, log says `via heading '<name>'`; `MixerFloats` logs the first
+  write of every distinct exposed float (60 max) and the stats line counts them, so the next
+  run maps what the game drives near a red bell. `SfxReverbSceneTests` (2): with run 4's real
+  parameters the hallway's tail after 0.4 s must sit >= 10 dB above the big room's and still
+  ring a second in. Red bells + water + the rest of the effect map: a background analysis is
+  writing `docs/reference/big-walk-voice-effects-catalog.md` (every scenario, mechanism,
+  parameters, what the mod covers); its gaps become M4 seeds. Operator check owed (run 5):
+  hallway vs big room contrast and the tail after each phrase; whether the megaphone now renders
+  (`Megaphone: broadcast started`, `via room`, and what the probe lines say); the settings row
+  on one line in both menus; try `TransmitHoldMs` 400-500 and `OutputTrimDb` -3 if the gate or
+  level still bother; walk up to a red bell while talking and note the `Mixer floats: first
+  write` lines.
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 

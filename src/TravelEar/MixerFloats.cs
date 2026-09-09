@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using HarmonyLib;
 using System.Reflection;
@@ -28,6 +29,16 @@ internal static class MixerFloats
 {
     /// <summary>The Master Wet return bus volume, dB. The environment reverb's return level.</summary>
     public const string MasterWet = "MasterWet";
+
+    private static readonly ConcurrentDictionary<string, float> Values = new();
+    private const int FirstWriteLogCap = 60;
+    private static int _firstWriteLogs;
+
+    /// <summary>How many distinct exposed floats the game has written since load.</summary>
+    public static int DistinctNames => Values.Count;
+
+    /// <summary>The last value the game wrote for an exposed float, if it has written one.</summary>
+    public static bool TryGet(string name, out float value) => Values.TryGetValue(name, out value);
 
     private static int _masterWetWritten;
     private static float _masterWetDb;
@@ -60,7 +71,16 @@ internal static class MixerFloats
     {
         try
         {
-            if (!__result || name != MasterWet) return;
+            if (!__result || name is null) return;
+            // Every distinct name is logged on its first write (capped): the map of what the
+            // game drives on its mixer, e.g. the red-bell zone effects (M4).
+            if (!Values.ContainsKey(name) && _firstWriteLogs < FirstWriteLogCap)
+            {
+                _firstWriteLogs++;
+                Plugin.Logger.LogInfo($"Mixer floats: first write of '{name}' = {value:F2} (#{_firstWriteLogs}).");
+            }
+            Values[name] = value;
+            if (name != MasterWet) return;
             Volatile.Write(ref _masterWetDb, value);
             Volatile.Write(ref _masterWetWritten, 1);
             Interlocked.Increment(ref _masterWetWrites);

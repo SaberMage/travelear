@@ -135,19 +135,13 @@ internal sealed class OffsetRow : IDisposable
         if (category == null) throw new InvalidOperationException("SettingsMenu.catagoryAudio is missing.");
         var rows = category.rows;
         if (rows == null || rows.Length == 0) throw new InvalidOperationException("The Audio SettingsCatagory has no rows.");
-        // The last row with a caption to borrow. Not every SettingsRow carries a `title`: the
-        // Audio category's last row (run 3) had none, so the caption field is chosen per row
-        // (title, then sliderLabel, then arrayLabel) and rows without any are skipped.
+        // The last row is the template. Every Audio row is a slider with no `title` (runs 3-4):
+        // its heading ("MENU MUSIC VOLUME") is a plain LocalizedText child, and `sliderLabel` is
+        // the narrow value box, so the caption goes to the widest heading text (PickCaption).
         SettingsRow template = null;
-        string captionField = null;
         for (var i = rows.Length - 1; i >= 0 && template == null; i--)
-        {
-            var candidate = rows[i];
-            if (candidate == null) continue;
-            captionField = CaptionFieldOf(candidate);
-            if (captionField != null) template = candidate;
-        }
-        if (template == null) throw new InvalidOperationException("No Audio SettingsRow carries a title, sliderLabel or arrayLabel to caption.");
+            if (rows[i] != null) template = rows[i];
+        if (template == null) throw new InvalidOperationException("The Audio SettingsCatagory has no non-null SettingsRow to clone.");
 
         var templateObject = template.gameObject;
         var templateTransform = templateObject.transform;
@@ -158,14 +152,15 @@ internal sealed class OffsetRow : IDisposable
         go.transform.SetSiblingIndex(templateTransform.GetSiblingIndex() + 1);
 
         LocalizedText title;
+        string captionField = null;
         try
         {
             var row = go.GetComponent<SettingsRow>();
             if (row == null) throw new InvalidOperationException("The cloned row has no SettingsRow component.");
             row.enabled = false;
 
-            title = CaptionOf(row, captionField);
-            if (title == null) throw new InvalidOperationException($"The cloned SettingsRow lost its {captionField}.");
+            title = PickCaption(row, go, out captionField);
+            if (title == null) throw new InvalidOperationException("The cloned SettingsRow has no text to caption.");
             var titleTransform = title.transform;
 
             foreach (var selectable in go.GetComponentsInChildren<Selectable>(true))
@@ -199,22 +194,34 @@ internal sealed class OffsetRow : IDisposable
         _log.LogInfo($"Offset row: added to the Audio settings ({(menu.isInMainMenu ? "main menu" : "pause menu")}, from row '{templateObject.name}' via {captionField}).");
     }
 
-    /// <summary>The name of the first <c>LocalizedText</c> caption field the row carries, or null.</summary>
-    private static string CaptionFieldOf(SettingsRow row)
+    /// <summary>
+    /// The text that carries the caption: the row's <c>title</c> when it has one, else the widest
+    /// <c>LocalizedText</c> in the row that is not a value label (<c>sliderLabel</c>,
+    /// <c>arrayLabel</c>) and not inside a child <c>Selectable</c>, i.e. the heading; else the
+    /// value label as a last resort. <paramref name="source"/> says which, for the log.
+    /// </summary>
+    private static LocalizedText PickCaption(SettingsRow row, GameObject go, out string source)
     {
-        if (row.title != null) return "title";
-        if (row.sliderLabel != null) return "sliderLabel";
-        if (row.arrayLabel != null) return "arrayLabel";
-        return null;
+        if (row.title != null) { source = "title"; return row.title; }
+        LocalizedText best = null;
+        var bestWidth = -1f;
+        var slider = row.sliderLabel;
+        var array = row.arrayLabel;
+        foreach (var text in go.GetComponentsInChildren<LocalizedText>(true))
+        {
+            if (text == null) continue;
+            if (slider != null && text.Pointer == slider.Pointer) continue;
+            if (array != null && text.Pointer == array.Pointer) continue;
+            var selectable = text.GetComponentInParent<Selectable>();
+            if (selectable != null && selectable.gameObject.Pointer != go.Pointer) continue;
+            var rect = text.transform.TryCast<RectTransform>();
+            var width = rect != null ? rect.rect.width : 0f;
+            if (best == null || width > bestWidth) { best = text; bestWidth = width; }
+        }
+        if (best != null) { source = $"heading '{best.gameObject.name}' ({bestWidth:F0} px wide)"; return best; }
+        source = slider != null ? "sliderLabel" : "arrayLabel";
+        return slider ?? array;
     }
-
-    private static LocalizedText CaptionOf(SettingsRow row, string field) => field switch
-    {
-        "title" => row.title,
-        "sliderLabel" => row.sliderLabel,
-        "arrayLabel" => row.arrayLabel,
-        _ => null,
-    };
 
     /// <summary>
     /// Writes the caption into the title as a raw (unlocalized) value through the game's own
@@ -226,6 +233,20 @@ internal sealed class OffsetRow : IDisposable
         if (title == null) return;
         title.displayType = LocalizedText.DisplayType.RawValue;
         title.rawValue = caption;
+        try
+        {
+            // One line, never wrapped into a column (run 4 screenshot).
+            var element = title.textElement;
+            if (element != null)
+            {
+                element.enableWordWrapping = false;
+                element.overflowMode = TextOverflowModes.Overflow;
+            }
+        }
+        catch (Exception)
+        {
+            // Cosmetic; the caption still shows.
+        }
         try
         {
             title.Change(caption, LocalizedText.DisplayType.RawValue);
