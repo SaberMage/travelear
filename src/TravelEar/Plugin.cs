@@ -52,6 +52,7 @@ public sealed class Plugin : BasePlugin
             _harmony.PatchAll(typeof(TapFilter));
             Logger.LogInfo("Round-trip provider guard and Tap installed.");
             _harmony.PatchAll(typeof(TransmitSignal));
+            _harmony.PatchAll(typeof(MixerFloats));
             Logger.LogInfo("Transmit signal probe installed on VoiceBroadcastTrigger.Start.");
         }
         catch (Exception e)

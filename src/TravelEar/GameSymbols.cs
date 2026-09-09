@@ -33,6 +33,9 @@ internal static class GameSymbols
     /// <summary><c>VoiceBroadcastTrigger.Start()</c>: where the transmit-signal probe collects the scene's triggers.</summary>
     public static MethodInfo VoiceBroadcastTriggerStart { get; private set; }
 
+    /// <summary><c>AudioMixer.SetFloat(string, float)</c>: the game's writes to the main mixer's exposed floats (<c>MasterWet</c>); the only way to read them, see <see cref="MixerFloats"/>.</summary>
+    public static MethodInfo AudioMixerSetFloat { get; private set; }
+
     public static bool IsBound { get; private set; }
 
     /// <summary>Unity's SFX Reverb parameter names in its documented order; <c>AudioDynamicReverb</c> exposes them as <c>DSP_*</c>, <c>AudioBasicReverb</c> bare, and the main mixer under the same names.</summary>
@@ -62,6 +65,7 @@ internal static class GameSymbols
         AudioFilterMixerOnAudioFilterRead = Method(missing, typeof(AudioFilterMixer), "OnAudioFilterRead",
             typeof(Il2CppStructArray<float>), typeof(int));
         VoiceBroadcastTriggerStart = Method(missing, typeof(VoiceBroadcastTrigger), "Start");
+        AudioMixerSetFloat = Method(missing, typeof(UnityEngine.Audio.AudioMixer), "SetFloat", typeof(string), typeof(float));
 
         // Fields and properties the renderer assigns or reads (interop exposes fields as properties).
         Property(missing, typeof(VoicePlayer), "Cue");

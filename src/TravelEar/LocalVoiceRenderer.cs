@@ -104,6 +104,7 @@ internal sealed class LocalVoiceRenderer
     private volatile bool _envReadable;
     private bool _reportedEnvError;
     private bool _reportedBasicMode;
+    private bool? _masterWetWritten;
     private float _nextEnvLog;
     private sealed class EnvironmentReverbSnapshot
     {
@@ -311,11 +312,21 @@ internal sealed class LocalVoiceRenderer
         {
             var am = AudioManager.Instance;
             var gae = GlobalAudioEffects.Instance;
-            var mixer = gae?.Mixer;
-            if (am is null || gae is null || mixer is null || !mixer.GetFloat("MasterWet", out var masterWetDb))
+            if (am is null || gae is null)
             {
                 _envReadable = false;
                 return;
+            }
+            // AudioMixer.GetFloat throws in this game (see MixerFloats); the game's own SetFloat
+            // writes are the source. Before the first write the mixer asset's nominal 0 dB is
+            // assumed and said once; the first write is reported once too.
+            var masterWetWritten = MixerFloats.TryGetMasterWet(out var masterWetDb);
+            if (masterWetWritten != _masterWetWritten)
+            {
+                _masterWetWritten = masterWetWritten;
+                _log.LogInfo(masterWetWritten
+                    ? $"Environment reverb: MasterWet written by the game: {masterWetDb:F1} dB ({MixerFloats.MasterWetWrites} writes so far)."
+                    : "Environment reverb: the game has not written MasterWet yet; assuming 0 dB until it does.");
             }
             var voiceBusDb = 20f * Mathf.Log10(Mathf.Max(gae.VoiceNormalVol * gae.VoiceAudioSettingsVol, 1e-4f));
             EnvironmentReverbSnapshot snapshot;
@@ -358,7 +369,7 @@ internal sealed class LocalVoiceRenderer
                 _log.LogInfo($"Environment reverb: {(snapshot.Dynamic ? $"RS {snapshot.RoomSize:F2} O {snapshot.Outdoorness:F2} RT {snapshot.ReverbTime:F2} D {snapshot.Diffusion:F2}" : "basic mode")}; " +
                              $"DryLevel {q.DryLevelMb:F0} Room {q.RoomMb:F0} RoomHF {q.RoomHfMb:F0} RoomLF {q.RoomLfMb:F0} mB, Decay {q.DecayTimeS:F2} s x{q.DecayHfRatio:F2}, " +
                              $"Reflections {q.ReflectionsMb:F0} mB @{q.ReflectDelayS * 1000f:F0} ms, Reverb {q.ReverbMb:F0} mB @{q.ReverbDelayS * 1000f:F0} ms, " +
-                             $"HF {q.HfReferenceHz:F0} LF {q.LfReferenceHz:F0} Hz, Diffusion {q.DiffusionPct:F0} Density {q.DensityPct:F0}; MasterWet {q.MasterWetDb:F1} dB, voice {q.VoiceBusDb:F1} dB.");
+                             $"HF {q.HfReferenceHz:F0} LF {q.LfReferenceHz:F0} Hz, Diffusion {q.DiffusionPct:F0} Density {q.DensityPct:F0}; MasterWet {q.MasterWetDb:F1} dB ({(masterWetWritten ? $"{MixerFloats.MasterWetWrites} writes" : "assumed")}), voice {q.VoiceBusDb:F1} dB.");
             }
         }
         catch (Exception e)
@@ -936,7 +947,7 @@ internal sealed class LocalVoiceRenderer
                 ? $"; megaphone: {(_megaphoneActive ? "broadcasting" : _megaphoneHeld ? "held" : "none")}, broadcasts {_megaphoneBroadcasts}, frames {_megaphone?.Frames ?? 0}, mix {_megaphoneMix}, reduction {_megaphone?.CompressorReductionDb ?? 0:F1}/{_megaphone?.PostCompressorReductionDb ?? 0:F1} dB"
                 : "; megaphone: off";
             path += _envToggles.Master
-                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, frames {_env?.Frames ?? 0}"
+                ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}"
                 : "; environment reverb: off";
         }
         _log.LogInfo(

@@ -135,10 +135,19 @@ internal sealed class OffsetRow : IDisposable
         if (category == null) throw new InvalidOperationException("SettingsMenu.catagoryAudio is missing.");
         var rows = category.rows;
         if (rows == null || rows.Length == 0) throw new InvalidOperationException("The Audio SettingsCatagory has no rows.");
+        // The last row with a caption to borrow. Not every SettingsRow carries a `title`: the
+        // Audio category's last row (run 3) had none, so the caption field is chosen per row
+        // (title, then sliderLabel, then arrayLabel) and rows without any are skipped.
         SettingsRow template = null;
+        string captionField = null;
         for (var i = rows.Length - 1; i >= 0 && template == null; i--)
-            if (rows[i] != null) template = rows[i];
-        if (template == null) throw new InvalidOperationException("The Audio SettingsCatagory has no non-null SettingsRow to clone.");
+        {
+            var candidate = rows[i];
+            if (candidate == null) continue;
+            captionField = CaptionFieldOf(candidate);
+            if (captionField != null) template = candidate;
+        }
+        if (template == null) throw new InvalidOperationException("No Audio SettingsRow carries a title, sliderLabel or arrayLabel to caption.");
 
         var templateObject = template.gameObject;
         var templateTransform = templateObject.transform;
@@ -155,8 +164,8 @@ internal sealed class OffsetRow : IDisposable
             if (row == null) throw new InvalidOperationException("The cloned row has no SettingsRow component.");
             row.enabled = false;
 
-            title = row.title;
-            if (title == null) throw new InvalidOperationException("The cloned SettingsRow has no title.");
+            title = CaptionOf(row, captionField);
+            if (title == null) throw new InvalidOperationException($"The cloned SettingsRow lost its {captionField}.");
             var titleTransform = title.transform;
 
             foreach (var selectable in go.GetComponentsInChildren<Selectable>(true))
@@ -187,8 +196,25 @@ internal sealed class OffsetRow : IDisposable
         }
 
         _entries.Add(new Entry { MenuPointer = menu.Pointer, Row = go, Title = title });
-        _log.LogInfo($"Offset row: added to the Audio settings ({(menu.isInMainMenu ? "main menu" : "pause menu")}, from row '{templateObject.name}').");
+        _log.LogInfo($"Offset row: added to the Audio settings ({(menu.isInMainMenu ? "main menu" : "pause menu")}, from row '{templateObject.name}' via {captionField}).");
     }
+
+    /// <summary>The name of the first <c>LocalizedText</c> caption field the row carries, or null.</summary>
+    private static string CaptionFieldOf(SettingsRow row)
+    {
+        if (row.title != null) return "title";
+        if (row.sliderLabel != null) return "sliderLabel";
+        if (row.arrayLabel != null) return "arrayLabel";
+        return null;
+    }
+
+    private static LocalizedText CaptionOf(SettingsRow row, string field) => field switch
+    {
+        "title" => row.title,
+        "sliderLabel" => row.sliderLabel,
+        "arrayLabel" => row.arrayLabel,
+        _ => null,
+    };
 
     /// <summary>
     /// Writes the caption into the title as a raw (unlocalized) value through the game's own

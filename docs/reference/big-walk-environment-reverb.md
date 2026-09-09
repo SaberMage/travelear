@@ -527,6 +527,18 @@ shelves). Log `adr.RoomSize / Outdoorness / ReverbTime / Diffusion` and the four
 ---
 
 ## 6. Unreadable / inferred
+
+**`AudioMixer.GetFloat(string, out float)` cannot be called in this game** (M3 run 3,
+2026-09-09). The method is stripped from the IL2CPP build and Il2CppInterop unstrips it with
+Unity 6's managed body, which pins the name as an `Il2CppSystem.ReadOnlySpan<char>` whose
+`GetPinnableReference` is stripped as well: every call throws
+`MissingMethodException: '!0 ByRef Il2CppSystem.ReadOnlySpan`1.GetPinnableReference()'`. The
+native `UnityEngine.Audio.AudioMixer::GetFloat_Injected` icall is not registered in
+GameAssembly.dll either (only `SetFloat_Injected` is), so no read path exists. `MasterWet` is
+read instead from the game's own writes: a Harmony postfix on `AudioMixer.SetFloat(string,
+float)` (`MixerFloats`), which the game does call (`MasterWet` and `MasterWetMatch` are string
+literals in global-metadata.dat). Until the first write the mod assumes the mixer asset's nominal
+0 dB and says so once; the asset's actual default has not been read from the mixer YAML yet.
 - Built-in mixer effect type ids (§0) are inferred from parameter counts/order and the exposed
   names that land on them; the SFX Reverb identification (`type 17`, 14 parameters in Unity's
   documented order, carrying `DryLevel .. Density`) is unambiguous, the rest are labels only.

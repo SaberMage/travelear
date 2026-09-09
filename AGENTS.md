@@ -46,6 +46,10 @@ This project uses [`traceable-reqs`](https://github.com/BigscreenVR/traceable-re
   from the decompiled game (`BepInEx/interop/*.dll` signatures + Cpp2IL bodies). When a game
   update renames one, the mod hard-fails and logs; it never silently degrades to partial
   fidelity (see `docs/KNOWN-HAZARDS.md`).
+- **Never read mixer floats through `AudioMixer.GetFloat`.** It is an unstripped Unity 6 body
+  that throws `MissingMethodException` in this game, and its native icall is not registered.
+  Read exposed floats from the game's own `SetFloat` writes (`MixerFloats`, a Harmony postfix);
+  details in `docs/reference/big-walk-environment-reverb.md` section 6.
 - Honor every `docs/KNOWN-HAZARDS.md` invariant — each is a `REQ-HAZARD-*` with a test.
 - Docs are dual-audience (human + AI dev-agent) per `docs/DOCS-STRATEGY.md`; the docs-site
   build is a CI gate.

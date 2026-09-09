@@ -314,6 +314,29 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   the `## [1.0.0]` retitle, tag, `gh release create`, fresh-install run, and question 4's default
   (T2b made the environment reverb live-driven, so `EnvironmentReverb` on is the proposed default;
   `MixerReverbFall` stays on with its approximate decay unless the operator objects).
+- **M3 run 3** (2026-09-09 00:36-00:43 local, operator solo run on `30b053e`, default feed):
+  operator's ear: no processing effects, no reverb in the hallway, no difference outdoors;
+  Settings > Audio had nothing new. Log: two defects, each logged once at load. (1)
+  `Environment reverb: inputs unreadable, stage bypassed: Method not found: '!0 ByRef
+  Il2CppSystem.ReadOnlySpan`1.GetPinnableReference()'` — `AudioMixer.GetFloat("MasterWet")` is an
+  unstripped Unity 6 body whose span pin is stripped; the `GetFloat_Injected` icall is absent from
+  GameAssembly.dll, so there is no read path (reference doc section 6). The stage was bypassed all
+  run (`environment reverb: bypassed (inputs unreadable)`), which is why the hallway carried no
+  reverb. Fix: `MixerFloats`, a Harmony postfix on `AudioMixer.SetFloat(string, float)` (symbol
+  `AudioMixerSetFloat` in `GameSymbols.Bind`) remembering the game's `MasterWet` writes; the
+  renderer assumes 0 dB and says so once until the first write, then reports the value and the
+  write count in the `Environment reverb:` line and the stats line. (2) `Offset row: unavailable
+  (InvalidOperationException: The cloned SettingsRow has no title.)` — the Audio category's last
+  row has no `title`. Fix: the template is the last row carrying a caption (`title`, then
+  `sliderLabel`, then `arrayLabel`) and the clone keeps that field; the success line names the
+  field. Also unexercised again: falls 0, megaphone broadcasts 0 (T1/T2 checks still owed).
+  Counters clean: 6021 frames encoded = decoded = sent, `dropped 0`, `errors 0`, mixer stage
+  `live` (identity at the Self-Ear); Helper `underruns 0, starves 0, trims 0`, 6021 frames.
+  Gates green, 210 tests, deployed 01:17 local. Operator check owed (run 4): hallway A/B, the
+  `Environment reverb:` line showing `MasterWet … (N writes)` or `(assumed)`, stats
+  `environment reverb: live`; Settings > Audio last row `TravelEar offset:` in both menus and
+  `Offset row: added … via <field>` twice; plus the T1/T2 checks (fall outdoors while talking;
+  hold and use a megaphone).
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 
