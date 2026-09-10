@@ -18,7 +18,10 @@ records as its own track. Nothing is mixed into the game's audio.
 - **The listener's gain chain.** The game's indoor voice attenuation (6 dB down fully indoors,
   `Fidelity.IndoorAttenuation`), the red bells' voice fade (`Fidelity.SpeechlessVolume`) and
   the master limiter every listener's mix ends in (`Fidelity.MasterLimiter`) are applied as the
-  game does. The bells' pitch drop and reverb bloom are not rendered yet.
+  game does. The bells' pitch drop (`Fidelity.SpeechlessPitch`, the voice mixer's pitch shifter
+  at the game's `VoicePitch`) and their dark, smeared bloom (`Fidelity.SpeechlessBloom`, the
+  6.8 s super-wet reverb and chorus at the game's `SuperWet_Speechlessness`) follow the floats
+  the game writes for you as the listener.
 - **Environment reverb.** The room reverb other players hear on your voice (hallways, caves,
   almost nothing outdoors) follows the same live reverb parameters the game writes every frame,
   including the game's own dry copy and bus levels. `Fidelity.EnvironmentReverb` and its

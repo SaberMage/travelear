@@ -63,8 +63,8 @@ normal play.
 | 7 | **Environment reverb** | always | main mixer `Master Wet` SFX Reverb, 14 floats rewritten every `LateUpdate` from `RoomSize/Outdoorness/ReverbTime/Diffusion` | env-reverb doc 1 | listener | `EnvironmentReverb` + `SfxReverb`, live floats | covered (approximate network) |
 | 7b | **Indoor voice attenuation** (`_outdoornessVol`) | always | an `AudioVolume` in the source's volume chain: `Volume += ((adr.Outdoorness·0.5 + 0.5) − Volume)·clamp01(dt·3)` — **0.5 linear (−6 dB) indoors, 1.0 outdoors** | 5.1b | **listener** | **nothing** | **high** — a flat −6 dB on every voice indoors, exactly where the mod is "a little hot" |
 | 8 | **Red bells — voice volume** | **speaker** inside a `SpeechlessZone`'s `outerRadius` | `PlayerVoicePlaybackControl._speechlessVol.Volume = lerp(v, 1 − sp_speaker, dt·5)`, an `AudioVolume` in the source's volume chain | 5.5 | **speaker** | **nothing** | **high** |
-| 9 | **Red bells — voice pitch** | **listener** inside a `SpeechlessZone` | voice mixer `Dry` group Pitch Shifter, `VoicePitch = 1 − sp_listener · SpeechlessPitchDeduction` | 5.5 | **listener** | **nothing** | **high** |
-| 10 | **Red bells — super-wet bloom** | listener `sp > 0` | `SuperWet_Speechlessness = (1 − sp^0.4)·−80` opens the `Speechlessness` return; every voice already feeds it at 0 dB through `VOICE SUPER WET BUS`; the return is a fixed 6.8 s SFX Reverb + Chorus at group pitch `SuperWetPitch = 1 − sp^0.4·MusicPitchDeduction` | 5.5 | **listener** | **nothing** | **high** |
+| 9 | **Red bells — voice pitch** | **listener** inside a `SpeechlessZone` | voice mixer `Dry` group Pitch Shifter, `VoicePitch = 1 − sp_listener · SpeechlessPitchDeduction` | 5.5 | **listener** | `MixerStage` runs a phase-vocoder `PitchShifter` on the dry path at the `VoicePitch` the game writes (M3 T4e, `Fidelity.SpeechlessPitch`) | **covered** (approximate shifter) |
+| 10 | **Red bells — super-wet bloom** | listener `sp > 0` | `SuperWet_Speechlessness = (1 − sp^0.4)·−80` opens the `Speechlessness` return; every voice already feeds it at 0 dB through `VOICE SUPER WET BUS`; the return is a fixed 6.8 s SFX Reverb + Chorus at group pitch `SuperWetPitch = 1 − sp^0.4·MusicPitchDeduction` | 5.5 | **listener** | `SpeechlessBloom`: `Voice_SuperWet` → `SuperWetPitch` (pitch shifter, not a resample) → the fixed reverb + chorus at `SuperWet_Speechlessness`, all read from `MixerFloats` (M3 T4e, `Fidelity.SpeechlessBloom`) | **covered** (approximate reverb, chorus, pitch) |
 | 11 | **Red bells — environment-reverb kill** | listener `sp` near 1 | `MasterWet = sp^10 · −80` | 5.5 | listener | `EnvironmentReverb` already reads `MasterWet` from `MixerFloats` | **covered** — the one speechlessness term the mod tracks |
 | 12 | **Megaphone voice** | a `RadioVoiceAssigner` whose `voicePlayer.PlayerType == Megaphone` is broadcasting | a second `VoicePlayer` on the prop, fed from the same ring: `BitCrusher` + 300 Hz HP in process, then the whole `megaphone mixer N` chain, then `megaphone master` Dry/Wet | 5.9 | speaker + geometric | `MegaphoneVoice` (crusher, HP, two compressors) | missing the mixer's fixed LP 5 kHz, 2.5 kHz ParamEQ, 100 ms Echo and its live 2 s SFX reverb; compressor timings wrong — **medium** |
 | 13 | **Walkie-talkie / radio voice** | a `RadioVoiceAssigner` whose `PlayerType == WalkieTalkie` (or `Radio`) is receiving | `BitCrusher` in process, then `radio mixer` / `walkietalkie mixer N` (two ParamEQs, LP 9 kHz, HP 400 Hz, compressor) → `walkietalkie mixer` pitch shifter | 5.10 | speaker | **nothing** (explicitly out of scope) | **medium**, out of scope |
@@ -1166,10 +1166,11 @@ Worth recording so nobody re-derives them:
    is a flat −6 dB indoors on everything. Cheapest fix in this list and the most likely cause of
    the "Local Voice is a little hot" report; it also explains why the hallway A/B compared badly
    against what peers hear.
-1. **Red bells / speechlessness (rows 8-10).** Five terms, all readable, none implemented. Row 8
-   alone (`_speechlessVol`) is a plain linear gain and is a few lines. Rows 9-10 need a pitch
-   shifter and the fixed super-wet reverb + chorus, which is real DSP work. The operator hit this
-   directly in M3 run 4.
+1. **Red bells / speechlessness (rows 8-10).** Five terms, all readable. Row 8
+   (`_speechlessVol`) is a plain linear gain (M3 T4c). Rows 9-10 — the pitch shifter and the
+   fixed super-wet reverb + chorus — were built in M3 T4e from the floats the game writes for
+   the local listener (`VoicePitch`, `SuperWetPitch`, `SuperWet_Speechlessness`, `Voice_SuperWet`).
+   The operator hit this directly in M3 runs 4 and 6.
 2. **Cliff echo (row 15).** Two extra voice copies with 0.7-1.5 s delays, an LP/HP pair, a ducker
    and a 6 s reverb. Outdoors this is loud and obvious; it is already the M4 seed.
 3. **Master limiter (row 25).** The whole mix, including the environment reverb, hits a −3 dB

@@ -101,7 +101,8 @@ public sealed class Plugin : BasePlugin
         // Renderer: built lazily from the main thread once the game's audio system exists.
         var mixer = new MixerStageToggles(Settings.MixerStage.Value, Settings.MixerDry.Value, Settings.MixerHigh.Value, Settings.MixerReverbFall.Value, Settings.MixerReverbBoost.Value);
         var megaphone = new MegaphoneToggles(Settings.MegaphoneVoice.Value, Settings.MegaphoneCrusher.Value, Settings.MegaphoneHighPass.Value, Settings.MegaphoneCompressors.Value, Settings.MegaphoneMixer.Value);
-        var listener = new ListenerToggles(Settings.IndoorAttenuation.Value, Settings.SpeechlessVolume.Value, Settings.MasterLimiter.Value);
+        var listener = new ListenerToggles(Settings.IndoorAttenuation.Value, Settings.SpeechlessVolume.Value, Settings.MasterLimiter.Value, Settings.SpeechlessPitch.Value, Settings.SpeechlessBloom.Value);
+        mixer = mixer with { Pitch = Settings.SpeechlessPitch.Value };
         var environment = new EnvironmentReverbToggles(Settings.EnvironmentReverb.Value, Settings.EnvironmentReverbDryCopy.Value, Settings.EnvironmentReverbBusGains.Value, Settings.EnvironmentReverbVoiceSlider.Value);
         _renderer = new LocalVoiceRenderer(Logger, _pump, feed, Settings.SelfEarForwardMeters.Value, Settings.TransmitGate.Value, Settings.TransmitFadeOutMs.Value, Settings.TransmitHoldMs.Value, Settings.OutputTrimDb.Value, Settings.ReadHeadMarginFrames.Value, Settings.SelfEarEqDryWet.Value, mixer, Settings.ReverbDecaySeconds.Value,
             megaphone, Settings.MegaphoneMix.Value, environment, listener);
@@ -168,6 +169,8 @@ internal sealed class PluginConfig
     public ConfigEntry<bool> EnvironmentReverbVoiceSlider { get; }
     public ConfigEntry<bool> IndoorAttenuation { get; }
     public ConfigEntry<bool> SpeechlessVolume { get; }
+    public ConfigEntry<bool> SpeechlessPitch { get; }
+    public ConfigEntry<bool> SpeechlessBloom { get; }
     public ConfigEntry<bool> MasterLimiter { get; }
     public ConfigEntry<bool> MegaphoneMixer { get; }
     public ConfigEntry<bool> TransmitGate { get; }
@@ -230,7 +233,11 @@ internal sealed class PluginConfig
         IndoorAttenuation = file.Bind("Fidelity", "IndoorAttenuation", true,
             "The game's indoor voice attenuation: a listener hears every voice at Outdoorness * 0.5 + 0.5, i.e. 6 dB down fully indoors (their own outdoorness; yours at the Self-Ear).");
         SpeechlessVolume = file.Bind("Fidelity", "SpeechlessVolume", true,
-            "The red bells' voice fade: a speaker inside a speechless zone is heard at 1 - speechlessness, silent at the centre. The zone's pitch and super-wet effects are not rendered yet.");
+            "The red bells' voice fade: a speaker inside a speechless zone is heard at 1 - speechlessness, silent at the centre.");
+        SpeechlessPitch = file.Bind("Fidelity", "SpeechlessPitch", true,
+            "The red bells' pitch drop: the voice mixer's pitch shifter at the VoicePitch the game writes for the listener (1 - speechlessness * the zone's deduction). Pitch without tempo, as in the game; adds 16 ms of latency inside Local Voice. Off = no shifter in the chain.");
+        SpeechlessBloom = file.Bind("Fidelity", "SpeechlessBloom", true,
+            "The red bells' super-wet bloom: the 6.8 s dark reverb and chorus that opens as the listener nears a zone (SuperWet_Speechlessness, pitched by SuperWetPitch, both read from the game). Approximate reverb and chorus.");
         MasterLimiter = file.Bind("Fidelity", "MasterLimiter", true,
             "The game's master limiter (Duck Volume on the main mixer's Master: -3 dB threshold, 10:1, 0.125 s release, 20 dB knee), the last thing a listener's mix goes through. Approximate detector.");
         MegaphoneMixer = file.Bind("Fidelity", "MegaphoneMixer", true,

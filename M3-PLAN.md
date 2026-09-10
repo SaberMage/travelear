@@ -496,10 +496,7 @@ measurement is implemented here; the rest are seeds.
   `Fidelity.MegaphoneMixer`, `MegaphoneToggles.Mixer`; erratum 1: `MixerStageInputs.GlobalVoiceVolume`
   renamed `ListenerReverbTime` and fed from `AudioDynamicReverb.ReverbTime` (boost is still
   silent at the Self-Ear). Stats line: `source gain`, `limiter`. Tests: `ListenerGainTests` (8).
-- **Seeds (M4, from the catalogue's ranked gaps):** red bells rows 9-10 — `VoicePitch = 1 -
-  sp * SpeechlessPitchDeduction` through an FFT-1024 pitch shifter (phase vocoder port) and the
-  super-wet bloom (`SuperWet_Speechlessness = (1 - sp^0.4) * -80` into the fixed 6.8 s reverb +
-  chorus, pitched by `SuperWetPitch`), all values already visible in `MixerFloats`; cliff echo
+- **Seeds (M4, from the catalogue's ranked gaps):** (red bells rows 9-10 moved to T4e); cliff echo
   (`EchoRemote`, two copies 0.7-1.5 s, LP/HP, ducker, 6 s reverb); blindfold worn by the local
   player (full-wet LowPass 1500 Hz Q 0.6 on our voice as others hear it; state from
   `postProcessingManager.blindfoldPPVolume.weight`); blindfold/headphone listening tone

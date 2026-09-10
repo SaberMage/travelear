@@ -171,6 +171,16 @@ internal sealed class LocalVoiceRenderer
     private readonly ListenerToggles _listenerToggles;
     private readonly SourceVolume _sourceVolume;
     private readonly MasterLimiter _masterLimiter;
+    // Red bells rows 9-10 (REQ-MIXER-RESYNTH, M3 T4e). Main thread: the four listener floats the
+    // game writes (MixerFloats); encoder thread: the mixer stage's pitch and _bloom.
+    private SpeechlessBloom _bloom;
+    private readonly float[] _bloomScratch = new float[8192];
+    private volatile float _voicePitch = 1f;
+    private volatile float _superWetPitch = 1f;
+    private volatile float _superWetReturnDb = SpeechlessBloom.FloorDb;
+    private volatile float _superWetBusDb;
+    private bool _bloomWasOpen;
+    private int _bloomOpenings;
     private volatile float _sourceGain = 1f;
     private volatile float _speechlessness;
     private bool _reportedSpeechlessError;
@@ -268,6 +278,7 @@ internal sealed class LocalVoiceRenderer
         _mixerStage = new MixerStage(LocalVoiceDecoder.SampleRate, _reverbDecaySeconds);
         _megaphone = new MegaphoneVoice(LocalVoiceDecoder.SampleRate);
         _env = new EnvironmentReverb(LocalVoiceDecoder.SampleRate);
+        _bloom = new SpeechlessBloom(LocalVoiceDecoder.SampleRate);
         OutboundVoiceTap.FrameEncoded += OnFrameEncoded;
         _log.LogInfo($"Local Voice: encoder feed built; {LocalVoiceDecoder.SampleRate} Hz mono straight to the Sink ring ({SinkFeed.Ring.Capacity} samples); voice EQ {(_eqCore is null ? "off" : $"wet {_eqDryWet:F2} (Core port)")}; " +
                      $"mixer stage {(_mixerToggles.Master ? $"on (dry {_mixerToggles.Dry}, high {_mixerToggles.High}, fall {_mixerToggles.ReverbFall}, boost {_mixerToggles.ReverbBoost}, reverb {_reverbDecaySeconds:F1} s)" : "off")}; " +
@@ -313,6 +324,7 @@ internal sealed class LocalVoiceRenderer
             _speechlessness = sp;
             _sourceVolume.Step(listenerOutdoor, sp, Time.deltaTime);
             _sourceGain = _sourceVolume.Gain;
+            UpdateSpeechlessFloats();
             _mixerDryDb = _mixerModel.DryDb;
             _mixerHighDb = _mixerModel.HighDb;
             _mixerFallDb = _mixerModel.ReverbFallWetDb;
@@ -687,7 +699,7 @@ internal sealed class LocalVoiceRenderer
                 {
                     _dynamics.Reset(_makeupGain); // the game's session-change reset
                     _eqCore?.Reset();
-                    if (gapMs > 2000) { _mixerStage?.Reset(); _env?.Reset(); _masterLimiter.Reset(); } // a long gap: drop the reverb tails too
+                    if (gapMs > 2000) { _mixerStage?.Reset(); _env?.Reset(); _masterLimiter.Reset(); _bloom?.Reset(); } // a long gap: drop the reverb tails too
                 }
                 ProcessRemotePath(count);
                 if (_feed == SinkFeedPoint.Encoder)
@@ -700,7 +712,7 @@ internal sealed class LocalVoiceRenderer
                     var sourceGain = _sourceGain;
                     if (sourceGain != 1f) for (var i = 0; i < frame.Length; i++) frame[i] *= sourceGain;
                     if (_mixerStage is not null && _mixerInputsReadable)
-                        _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
+                        _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles, _voicePitch);
                     // [impl->REQ-RENDER-MEGAPHONE]
                     // The megaphone's output is what its own player renders from the same processed
                     // voice; a listener beside the holder hears it on top of the direct voice.
@@ -717,14 +729,20 @@ internal sealed class LocalVoiceRenderer
                     // [impl->REQ-MIXER-RESYNTH]
                     // The listener's environment reverb, last: the Clean and Megaphone voices enter it together.
                     var env = _envSnapshot;
+                    var bloomIn = _bloomScratch.AsSpan(0, frame.Length);
+                    frame.CopyTo(bloomIn); // the main mixer's Voice group: the super-wet send is taken here, beside the wet/dry buses
                     if (_env is not null && _envReadable && env is not null)
                         _env.Process(frame, env.Params, _envToggles);
+                    // [impl->REQ-MIXER-RESYNTH]
+                    // The red bells' bloom rides the same Voice group into Master Super Wet; summed
+                    // with the environment reverb's output before the limiter.
+                    var bloomed = ProcessBloom(bloomIn, frame);
                     // [impl->REQ-MIXER-RESYNTH]
                     if (_listenerToggles.MasterLimiter) _masterLimiter.Process(frame, MixerFloats.TryGet("MasterLimiterThreshold", out var limiterDb) ? limiterDb : MasterLimiter.DefaultThresholdDb);
                     if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
                     SinkFeed.Write(frame, capturedAt);
                     capture?.Output(frame);
-                    _tailSamplesLeft = (int)(TailSeconds * LocalVoiceDecoder.SampleRate);
+                    _tailSamplesLeft = (int)((bloomed ? SpeechlessBloom.TailSeconds : TailSeconds) * LocalVoiceDecoder.SampleRate);
                 }
                 else RoundTripProvider.Push(pcm, count, _ringChannels, capturedAt);
                 _lastPushWasVoice = true;
@@ -756,6 +774,28 @@ internal sealed class LocalVoiceRenderer
         }
     }
 
+    // [impl->REQ-MIXER-RESYNTH]
+    /// <summary>
+    /// Main thread: the red bells' listener-side floats as the game writes them for the local
+    /// listener (catalogue 5.5, items 2 and 4; at the Self-Ear the listener stands in the
+    /// speaker's zone). Unwritten floats keep the asset defaults (pitch 1, return -80 dB, bus 0 dB).
+    /// </summary>
+    private void UpdateSpeechlessFloats()
+    {
+        _voicePitch = MixerFloats.TryGet("VoicePitch", out var vp) ? vp : 1f;
+        _superWetPitch = MixerFloats.TryGet("SuperWetPitch", out var swp) ? swp : 1f;
+        var returnDb = MixerFloats.TryGet("SuperWet_Speechlessness", out var sws) ? sws : SpeechlessBloom.FloorDb;
+        _superWetReturnDb = returnDb;
+        _superWetBusDb = MixerFloats.TryGet("Voice_SuperWet", out var bus) ? bus : 0f;
+        var open = returnDb > SpeechlessBloom.ClosedDb;
+        if (open != _bloomWasOpen)
+        {
+            _bloomWasOpen = open;
+            if (open && ++_bloomOpenings <= 10)
+                _log.LogInfo($"Red bells: bloom opened (SuperWet_Speechlessness {returnDb:F1} dB, VoicePitch {_voicePitch:F3}, SuperWetPitch {_superWetPitch:F3}, sp {_speechlessness:F2}).");
+        }
+    }
+
     /// <summary>Encoder thread: a zero frame of the decoded frame's length, reused across calls.</summary>
     private Il2CppSystem.ArraySegment<float> GateSilence(int samples)
     {
@@ -765,6 +805,21 @@ internal sealed class LocalVoiceRenderer
             _gateSilenceSamples = samples;
         }
         return _gateSilence;
+    }
+
+    // [impl->REQ-MIXER-RESYNTH]
+    /// <summary>
+    /// Encoder thread: renders the red bells' bloom of <paramref name="voice"/> (the Voice group
+    /// signal) and sums it into <paramref name="mix"/>. True when the bloom is open or ringing.
+    /// </summary>
+    private bool ProcessBloom(ReadOnlySpan<float> voice, Span<float> mix)
+    {
+        if (_bloom is null || !_listenerToggles.SpeechlessBloom) return false;
+        // voice is the first half of _bloomScratch; the output takes the second half (frames are <= 2880 samples).
+        var output = _bloomScratch.AsSpan(voice.Length, voice.Length);
+        if (!_bloom.Process(voice, output, _superWetBusDb, _superWetPitch, _superWetReturnDb)) return false;
+        for (var i = 0; i < mix.Length; i++) mix[i] = Math.Clamp(mix[i] + output[i], -1f, 1f);
+        return true;
     }
 
     // [impl->REQ-RENDER-CLEAN]
@@ -793,11 +848,15 @@ internal sealed class LocalVoiceRenderer
         var mixer = _mixerStage is not null && _mixerInputsReadable && _mixerToggles.Master;
         var env = _envSnapshot;
         var environment = _env is not null && _envReadable && env is not null && _envToggles.Master;
-        if (!mixer && !environment) return false;
+        var bloom = _bloom is not null && _listenerToggles.SpeechlessBloom && _bloom.Active;
+        if (!mixer && !environment && !bloom) return false;
         var frame = _scratch.AsSpan(0, Math.Min(count, _scratch.Length));
         frame.Clear();
-        if (mixer) _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles);
+        if (mixer) _mixerStage.Process(frame, _mixerDryDb, _mixerHighDb, _mixerFallDb, _mixerBoostDb, _mixerToggles, _voicePitch);
+        var bloomIn = _bloomScratch.AsSpan(0, frame.Length);
+        frame.CopyTo(bloomIn);
         if (environment) _env.Process(frame, env.Params, _envToggles);
+        ProcessBloom(bloomIn, frame);
         if (_listenerToggles.MasterLimiter) _masterLimiter.Process(frame, MixerFloats.TryGet("MasterLimiterThreshold", out var limiterDb) ? limiterDb : MasterLimiter.DefaultThresholdDb);
         if (_outputTrim != 1f) for (var i = 0; i < frame.Length; i++) frame[i] = Math.Clamp(frame[i] * _outputTrim, -1f, 1f);
         SinkFeed.Write(frame, FrameStampTable.NoStamp);
@@ -1054,6 +1113,9 @@ internal sealed class LocalVoiceRenderer
             path += _envToggles.Master
                 ? $"; environment reverb: {(_envReadable ? "live" : "bypassed (inputs unreadable)")}, room {_env?.Params.RoomMb ?? 0:F0} mB, decay {_env?.Params.DecayTimeS ?? 0:F2} s, dry {_env?.DryGain ?? 1:F2} (copy {_env?.DryCopyGain ?? 0:F2}), return {_env?.ReturnGain ?? 1:F2}, MasterWet {(MixerFloats.TryGetMasterWet(out var mw) ? $"{mw:F1} dB" : "assumed 0 dB")}, frames {_env?.Frames ?? 0}, tail frames {_tailFrames}, mixer floats seen {MixerFloats.DistinctNames}; source gain {_sourceGain:F2} (indoor {_sourceVolume.IndoorGain:F2}, speechless {_sourceVolume.SpeechlessGain:F2}, sp {_speechlessness:F2}); limiter {(_listenerToggles.MasterLimiter ? $"{_masterLimiter.ThresholdDb:F1} dB, reduction {_masterLimiter.ReductionDb:F1} dB" : "off")}"
                 : "; environment reverb: off";
+            path += _listenerToggles.SpeechlessPitch || _listenerToggles.SpeechlessBloom
+                ? $"; bells: pitch {_mixerStage.Pitch:F3}, bloom {(_bloom?.Active == true ? "open" : "closed")} {_superWetReturnDb:F1} dB (pitch {_superWetPitch:F3}, bus {_superWetBusDb:F1} dB), openings {_bloomOpenings}"
+                : "; bells: pitch off, bloom off";
             if (CalibrationCapture.Instance is { } capture) path += "; " + capture.Status;
         }
         _log.LogInfo(

@@ -39,7 +39,9 @@ public class MixerStageTests
         var stage = new MixerStage(Rate, 1.5f);
         var block = Sine(440f, 2880);
         var copy = (float[])block.Clone();
-        stage.Process(block, 0f, 0f, MixerStageModel.FloorDb, MixerStageModel.FloorDb, MixerStageToggles.All);
+        // The pitch shifter stays in the chain at ratio 1 (as in the game) and delays the dry path by
+        // 768 samples, so the sample-exact check runs with it off; PitchShifterTests covers ratio 1.
+        stage.Process(block, 0f, 0f, MixerStageModel.FloorDb, MixerStageModel.FloorDb, MixerStageToggles.All with { Pitch = false });
         for (var i = 0; i < block.Length; i++) Assert.Equal(copy[i], block[i], 5);
         Assert.Equal(1f, stage.DryGain);
         Assert.Equal(0f, stage.FallWetGain);
@@ -79,9 +81,9 @@ public class MixerStageTests
     {
         var stage = new MixerStage(Rate, 1.5f);
         var burst = Sine(440f, 4800);
-        stage.Process(burst, 0f, 0f, 0f, MixerStageModel.FloorDb, MixerStageToggles.All with { ReverbFall = false });
+        stage.Process(burst, 0f, 0f, 0f, MixerStageModel.FloorDb, MixerStageToggles.All with { ReverbFall = false, Pitch = false });
         var silence = new float[4800];
-        stage.Process(silence, 0f, 0f, 0f, MixerStageModel.FloorDb, MixerStageToggles.All with { ReverbFall = false });
+        stage.Process(silence, 0f, 0f, 0f, MixerStageModel.FloorDb, MixerStageToggles.All with { ReverbFall = false, Pitch = false });
         Assert.Equal(0f, Peak(silence));
     }
 
@@ -107,6 +109,23 @@ public class MixerStageTests
         var treble = Sine(10_000f, 4800);
         stage.Process(treble, 0f, -30f, MixerStageModel.FloorDb, MixerStageModel.FloorDb, MixerStageToggles.All with { High = false });
         Assert.InRange(Peak(treble), 0.49f, 0.51f);
+    }
+
+    // [unit->REQ-MIXER-RESYNTH]
+    [Fact]
+    public void Pitch_drops_the_dry_voice_and_leaves_the_reverb_returns_alone()
+    {
+        var stage = new MixerStage(Rate, 1.5f);
+        var block = Sine(440f, Rate);
+        stage.Process(block, 0f, 0f, MixerStageModel.FloorDb, MixerStageModel.FloorDb, MixerStageToggles.All, 0.5f);
+        Assert.Equal(0.5f, stage.Pitch, 3);
+        Assert.InRange(Fft.DominantFrequency(block.AsSpan(Rate / 2), 8192, Rate), 208f, 232f);
+
+        var off = new MixerStage(Rate, 1.5f);
+        var same = Sine(440f, Rate);
+        off.Process(same, 0f, 0f, MixerStageModel.FloorDb, MixerStageModel.FloorDb, MixerStageToggles.All with { Pitch = false }, 0.5f);
+        Assert.Equal(1f, off.Pitch, 3);
+        Assert.InRange(Fft.DominantFrequency(same.AsSpan(Rate / 2), 8192, Rate), 430f, 450f);
     }
 
     [Fact]
