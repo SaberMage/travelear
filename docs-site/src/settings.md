@@ -43,11 +43,10 @@ mod installed, the same settings appear in the pause menu.
 
 `Sink.Downmix` applies live. Restart the game after changing any other key.
 
-## Offset row
+## Offset
 
-The game's own Audio settings (Settings in the main menu, and in the pause menu) end with a
-read-only row, `TravelEar offset: N ms`: the delay between your voice leaving the mic and
-reaching the Helper's output, as a rolling 10 s average, refreshed every 10 s. It reads
-`measuring` until the Helper has reported its first frames. The same figure is logged as
-`Offset:` every 10 s, so if the row is ever missing (the log then has a single
-`Offset row: unavailable` warning) the number is still in the log.
+The Helper's window ("TravelEar for Big Walk", minimized to the taskbar) shows
+`TravelEar offset: N ms`: the delay between your voice leaving the mic and reaching the
+Helper's output, as a rolling 10 s average. It reads `measuring` until the first frames have
+streamed. The same figure is logged as `Offset:` every 10 s. TravelEar adds nothing to the
+game's own menus.

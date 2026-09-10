@@ -60,6 +60,11 @@ internal sealed class SinkRenderer : IDisposable
 
     private NamedPipeClientStream? _pipe;
     private readonly System.Collections.Concurrent.ConcurrentQueue<OffsetReport> _reports = new();
+    // [impl->REQ-OFFSET-MEASURE]
+    // The window's Offset figure: the same capture/render pairs the mod averages, averaged here
+    // too (M3 T4d: the Helper's window is TravelEar's one UI; the game's menus are untouched).
+    private readonly OffsetAverager _averager = new();
+    private readonly object _averagerLock = new();
     private const int MaxQueuedReports = 256;
     private Thread? _backThread;
     private NamedPipeClientStream? _backPipe;
@@ -197,6 +202,9 @@ internal sealed class SinkRenderer : IDisposable
                         provider.Reported = report =>
                         {
                             if (_reports.Count < MaxQueuedReports) _reports.Enqueue(report);
+                            var frequency = (double)System.Diagnostics.Stopwatch.Frequency;
+                            lock (_averagerLock)
+                                _averager.Add((report.RenderTimestamp - report.CaptureTimestamp) * 1000.0 / frequency, report.RenderTimestamp * 1000.0 / frequency);
                         };
                         output.Play();
                         StartBackPipe();
@@ -233,7 +241,7 @@ internal sealed class SinkRenderer : IDisposable
                             $"Frames   : {frames}   buffered {provider.Ring.Count} samples\n" +
                             $"Underruns: {provider.Ring.Underruns}   starves {provider.Starve.Starves}   dropped {provider.Ring.DroppedSamples}\n" +
                             $"Trims    : {provider.Trims} ({provider.TrimmedSamples} samples; cap {RingWaveProvider.MaxBacklogMs} ms)\n" +
-                            $"Offset   : {provider.Reports} reports{(_backPipe?.IsConnected == true ? "" : " (return pipe not connected)")}");
+                            $"Offset   : {OffsetStatus(provider.Reports)}{(_backPipe?.IsConnected == true ? "" : " (return pipe not connected)")}");
                 }
             }
         }
@@ -251,6 +259,20 @@ internal sealed class SinkRenderer : IDisposable
     /// while it is not there, reports are dropped and the connection retried every second. Nothing
     /// here can stall the render thread or the Sink read.
     /// </summary>
+    // [impl->REQ-OFFSET-MEASURE]
+    /// <summary>"TravelEar offset: N ms (rolling 10 s, K frames)" or "measuring" while the window is still empty.</summary>
+    private string OffsetStatus(long reports)
+    {
+        double average, min, max;
+        int count;
+        bool ok;
+        lock (_averagerLock)
+            ok = _averager.TryAverage(System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / System.Diagnostics.Stopwatch.Frequency, out average, out min, out max, out count);
+        return ok
+            ? $"{OffsetCaption.Format(average)} (rolling 10 s, {count} frames, {min:F0}-{max:F0} ms; {reports} reports)"
+            : $"{OffsetCaption.Format(double.NaN)} ({reports} reports)";
+    }
+
     private void StartBackPipe()
     {
         if (_backThread is not null) return;

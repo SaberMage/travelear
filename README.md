@@ -43,7 +43,7 @@ By default the Helper plays to your system default output, so you hear Local Voi
 
 ### Offset
 
-Local Voice trails your raw mic by the delay the mod measures continuously: the last row of **Settings > Audio** reads `TravelEar offset: N ms` (main menu and pause menu), and `BepInEx\LogOutput.log` carries an `Offset:` line every 10 s. Enter that figure as the **Sync Offset** on your raw mic source in OBS if you want both tracks aligned. Expect roughly 200 ms.
+Local Voice trails your raw mic by the delay the mod measures continuously: the Helper's window ("TravelEar for Big Walk" in the taskbar) reads `TravelEar offset: N ms`, and `BepInEx\LogOutput.log` carries an `Offset:` line every 10 s. Enter that figure as the **Sync Offset** on your raw mic source in OBS if you want both tracks aligned. Expect roughly 200 ms.
 
 ## Settings
 

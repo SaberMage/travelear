@@ -24,7 +24,6 @@ public sealed class Plugin : BasePlugin
     private CalibrationCapture _capture;
     private SinkPump _pump;
     private OffsetMonitor _offset;
-    private OffsetRow _offsetRow;
     private LocalVoiceRenderer _renderer;
     private GameObject _driver;
 
@@ -75,7 +74,6 @@ public sealed class Plugin : BasePlugin
         Logger.LogInfo($"Sink feed point: {feed}.");
         _offset = new OffsetMonitor(Logger, HelperOptions.Default.BackPipe);
         _offset.Start();
-        _offsetRow = new OffsetRow(Logger, () => _offset.LastAverageMs);
         HelperLauncher.TryLaunch(Settings, Paths.BepInExRootPath);
 
         // T4a reference capture (M3-PLAN): off unless the operator is measuring.
@@ -116,7 +114,6 @@ public sealed class Plugin : BasePlugin
 
     public override bool Unload()
     {
-        _offsetRow?.Dispose();
         CalibrationCapture.Instance = null;
         _capture?.Dispose();
         SessionLog.Stop();

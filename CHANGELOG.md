@@ -44,9 +44,10 @@ records as its own track. Nothing is mixed into the game's audio.
   (a spare HDMI output, VB-CABLE, a VoiceMeeter input) if you want it silent. `Sink.Downmix`
   folds it to mono. The Helper's counters go to `%LOCALAPPDATA%\TravelEar\Helper.log` every 10 s.
 - **Offset.** The delay from your mic to the Helper's output is measured continuously and
-  shown as a read-only "TravelEar offset: N ms" row at the bottom of **Settings > Audio** (main
-  menu and pause menu), and logged as `Offset:` in `BepInEx\LogOutput.log`. Enter it as the OBS
-  **Sync Offset** on your raw mic source to align the two tracks. Expect roughly 200 ms.
+  shown as "TravelEar offset: N ms" in the Helper's window ("TravelEar for Big Walk" in the
+  taskbar), and logged as `Offset:` in `BepInEx\LogOutput.log`. Enter it as the OBS **Sync
+  Offset** on your raw mic source to align the two tracks. Expect roughly 200 ms. TravelEar
+  adds nothing to the game's own menus.
 - **Settings.** Every option lives in `BepInEx\config\com.sabermage.travelear.cfg` and shows up
   in ModSettingsMenu, titled by key. `General.Enabled` switches the whole mod off.
 - **Test tone.** `TravelEar.Helper.exe --tone [--endpoint <part of a device name>]` plays a

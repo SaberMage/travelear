@@ -1100,7 +1100,6 @@ internal sealed class TravelEarBehaviour : MonoBehaviour
         try
         {
             LocalVoiceRenderer.Instance?.Tick();
-            OffsetRow.Instance?.Tick();
         }
         catch (Exception e)
         {

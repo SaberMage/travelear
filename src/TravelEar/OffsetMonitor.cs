@@ -11,7 +11,8 @@ namespace TravelEar;
 /// one <see cref="OffsetReport"/> per Sink frame whose first sample it rendered: the capture
 /// timestamp that travelled with the frame and the render timestamp, both on the machine's
 /// performance counter. The difference is Offset. A rolling 10 s average is logged every 10 s and
-/// kept in <see cref="LastAverageMs"/> for a settings row later. Every failure is absorbed and the
+/// kept in <see cref="LastAverageMs"/>; the Helper's window shows the same figure from its own
+/// pairs (M3 T4d). Every failure is absorbed and the
 /// server re-arms on the same cadence as the Sink pipe (docs/KNOWN-HAZARDS.md 2.1).
 /// </summary>
 internal sealed class OffsetMonitor : IDisposable

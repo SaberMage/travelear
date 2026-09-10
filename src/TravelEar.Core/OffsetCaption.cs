@@ -3,12 +3,11 @@ using System.Globalization;
 namespace TravelEar.Core;
 
 /// <summary>
-/// Caption of the read-only Offset row in the game's Audio settings (<c>REQ-OFFSET-MEASURE</c>,
-/// docs/DESIGN.md "Config and settings UI"): the rolling 10 s average from
-/// <see cref="OffsetAverager"/> as "TravelEar offset: N ms", or "measuring" until there is one.
-/// Pure and culture-invariant, so the plugin can format it on the main thread.
+/// The Offset caption the Helper's window shows (<c>REQ-OFFSET-MEASURE</c>, docs/DESIGN.md
+/// "Offset"): the rolling 10 s average from <see cref="OffsetAverager"/> as
+/// "TravelEar offset: N ms", or "measuring" until there is one. Pure and culture-invariant.
 /// </summary>
-public static class OffsetRowCaption
+public static class OffsetCaption
 {
     public const string Prefix = "TravelEar offset: ";
 

@@ -54,7 +54,7 @@ matches, the Helper lists the active devices in its window and in
 ## 4. Align with your raw mic track
 
 TravelEar's track trails your raw mic by the Offset the mod measures continuously. Read it
-from the last row of **Settings > Audio** (`TravelEar offset: N ms`, in the main menu and the
-pause menu; `measuring` until the Helper has streamed) or from `BepInEx\LogOutput.log` (a line
+from the Helper's window (`TravelEar offset: N ms`; restore "TravelEar for Big Walk" from the
+taskbar; `measuring` until the Helper has streamed) or from `BepInEx\LogOutput.log` (a line
 like `Offset: 203 ms rolling 10 s average`), and enter that value as the **Sync Offset** on your
 raw mic source if you want both tracks sample-aligned for editing. Expect roughly 200 ms.

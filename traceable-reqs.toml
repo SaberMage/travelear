@@ -100,15 +100,15 @@ required_stages = ["doc", "impl", "unit"]  # M2 T3: Downmixer + tests, pump fold
 
 [[requirements]]
 id = "REQ-OFFSET-MEASURE"
-title = "Offset is measured end to end and reported as a rolling 10 s average in the log and, where supported, the pause-menu Audio section"
-required_stages = ["doc", "impl", "unit"]  # M2 T2: FrameStampTable / OffsetAverager / OffsetReportFrame + tests, return pipe, 10 s log line; the pause-menu row is M3
+title = "Offset is measured end to end and reported as a rolling 10 s average in the log and in the Helper's window"
+required_stages = ["doc", "impl", "unit"]  # M2 T2: FrameStampTable / OffsetAverager / OffsetReportFrame + tests, return pipe, 10 s log line; M3 T4d: the Helper window's figure (the in-game row of T3 was removed by operator ruling)
 
 # ───────────────────────────── Configuration ──────────────────────────────
 
 [[requirements]]
 id = "REQ-CONFIG-BEPINEX"
 title = "All user settings are BepInEx config entries so ModSettingsMenu surfaces them without registration"
-required_stages = ["doc", "impl"]  # M3 T3: PluginConfig binds every setting with a description; OffsetRow in the Audio settings; ModSettingsMenu check
+required_stages = ["doc", "impl"]  # M3 T3: PluginConfig binds every setting with a description; ModSettingsMenu check (no in-game UI of our own since T4d)
 
 # ───────────────────────────── Hazards (docs/KNOWN-HAZARDS.md) ────────────
 
