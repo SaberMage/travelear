@@ -397,6 +397,23 @@ Each is activated (`required_stages` set) in the commit that starts its task, pe
   lost again; Offset row template rule; fall reverb default off; the operator's config set to
   `TransmitHoldMs = 450`, `OutputTrimDb = -3` to try. Megaphone and red-bell evidence from the
   first launch is gone; owed again in run 6.
+- **M3 run 6** (2026-09-09 23:59 - 00:08 local on `4c89e77`; the first run kept by `SessionLog`,
+  `logs\game-20260909-235917.log`). Operator's ear: (1) still too loud and hot (clipping), T4a
+  is the tell; (2) hallway vs big room fine; (3) one minor word clip, mostly good at hold 450;
+  (4) the megaphone renders as intended; (5) the voice fades near a red bell, but the pitch bend
+  and the smeared, dark character are missing; (6) ruling: TravelEar already owns a window, so
+  the game's menus need no augmentation — the information and the option tweaks belong in
+  TravelEar's own window. Log: `source gain` tracked indoor 0.50-1.00 and speechless 1.00 -> 0.00
+  (`sp` reached 1.00 at the bell's centre); limiter reduction peaked at 2.1 dB; **the remote
+  path's makeup reached 6.97 (16.9 dB) with pre-clip peaks of 1.02-1.17** — the ported makeup
+  loop winds up through silence and the first loud word hits the soft clip, the likeliest
+  "hot / clipping", and T4a measures whether a real peer gets the same; megaphone `broadcast
+  started (#1..3) … via room`, every probe `heldProp 'MegaphoneProp', radioVoiceAssigner null`
+  (the held-prop chain stops at the assigner; the room fallback carried it); `Offset row: added …
+  from row 'SettingsRow_Slider Volume (4)'` in both menus; Helper 0 underruns, 1 starve, 1 trim
+  over 8112 frames; 71 mixer floats seen, among them `VoicePitch`, `SuperWetPitch`,
+  `SuperWet_Speechlessness` and `Voice_SuperWet`, all written by the game for the local
+  listener — the inputs T4e needs. Follow-ups: T4d (the window), T4e (bells rows 9-10).
 
 ### T4a — Reference capture (added 2026-09-09 after run 5)
 
@@ -489,6 +506,40 @@ measurement is implemented here; the rest are seeds.
   (`MasterLP`, `MasterFreqGain*`); ending and black tower super-wet returns; walkie/radio (out of
   scope by design); `High{n}` as a 250 Hz band split instead of a 3 kHz shelf; the `Reverb Fall`
   return's real 4 s / HF ratio 2 / +3 dB character (now off by default anyway).
+
+### T4d — The Offset moves to the Helper window (operator ruling, run 6)
+
+Why: TravelEar already owns a window (the Helper's status window, OBS's capture target), so the
+game's menus need no augmentation. `OffsetRow` — the `SettingsRow` cloning of T3, the fragile
+part of the settings work — goes; the Helper shows the Offset itself, from the same
+capture/render pairs it already reports back to the mod (`OffsetAverager`, 10 s window, the
+`OffsetRowCaption` wording kept in Core as the shared caption). The mod's `Offset:` log line
+stays. Option tweaks in the window need a Helper -> mod control channel and a live config
+reload; that is an M4 seed. For v1.0 the options stay BepInEx config entries, which
+ModSettingsMenu surfaces unchanged (that is a third-party mod's menu, not an augmentation of
+the game's). Docs: DESIGN "Config and settings UI" and the Offset paragraph, README "Offset",
+docs-site settings page, CHANGELOG, `REQ-OFFSET-MEASURE`'s title.
+
+### T4e — Red bells rows 9-10 (operator, run 6)
+
+Why: run 6 confirmed the fade (row 8) and missed the pitch bend and the smeared, dark
+character (rows 9-10). In the game both are listener-side (catalogue 5.5, items 2 and 4); at
+the Self-Ear the listener stands in the speaker's zone, so `sp_listener = sp_speaker`, and the
+game itself writes the listener's floats every frame on this machine — `VoicePitch`,
+`SuperWetPitch`, `SuperWet_Speechlessness`, `Voice_SuperWet`, all seen in run 6 — so the mod
+reads them from `MixerFloats` and needs no prefab constants. Build: Core `Fft` +
+`PitchShifter` (phase vocoder, FFT 1024, overlap 4 — the voice mixer's `Dry` group Pitch
+Shifter, on the dry path only; the reverb returns bypass it as in the asset, so the `High` cut
+moves onto the dry path too); `Chorus` (the asset's fixed 3-tap chorus: dry 1, wet 0.75 / 0.5
+/ 0.25, delay 100 ms, rate 0.5 Hz, depth 0.5); `SpeechlessBloom` = the main mixer's `Voice`
+group into `VOICE SUPER WET BUS` (`Voice_SuperWet`) -> group pitch `SuperWetPitch`
+(approximated by the pitch shifter: pitch without tempo, where the mixer group's resample
+also slows the wash) -> the fixed SFX Reverb (6.8 s, RoomHF -2000, HF ratio 0.15, Density 25,
+wet only) -> Chorus -> the `Speechlessness` return at `SuperWet_Speechlessness` dB, summed
+after the environment reverb and before the limiter; the gate's tail runs 7 s while the return
+is open. Config `Fidelity.SpeechlessPitch`, `Fidelity.SpeechlessBloom`. Approximate: the
+vocoder vs Unity's shifter (same family), the Freeverb-based `SfxReverb`, the chorus LFO shape.
+Tests: `PitchShifterTests`, `ChorusTests`, `SpeechlessBloomTests`, `MixerStageTests` (pitch).
 
 ### T0 bodies read (2026-09-07, background agent; full report `docs/reference/big-walk-local-voice-wiring.md`)
 
